@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -26,104 +27,109 @@
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
   html, body { height: 100%; font-family: 'Nunito', sans-serif; background: var(--bg); color: #1e1a12; overscroll-behavior: none; }
 
-  /* ── Header ── */
-  #header { background: var(--green); color: white; padding: 16px 14px 12px; position: sticky; top: 0; z-index: 30; box-shadow: 0 2px 12px rgba(0,0,0,.22); }
-  .header-inner { max-width: 860px; margin: 0 auto; }
-  .header-top { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; }
-  .header-top h1 { font-family: 'Fraunces', serif; font-size: 20px; font-weight: 700; letter-spacing: -.02em; }
-  #photo-count { font-size: 11px; opacity: .7; }
-  #search { width: 100%; padding: 8px 14px; border-radius: 20px; border: none; background: rgba(255,255,255,.18); color: white; font-size: 14px; font-family: inherit; outline: none; margin-bottom: 10px; }
-  #search::placeholder { color: rgba(255,255,255,.55); }
-  #tabs { display: flex; gap: 6px; }
-  .tab { padding: 4px 14px; border-radius: 20px; border: none; cursor: pointer; font-size: 12px; font-weight: 700; font-family: inherit; background: transparent; color: rgba(255,255,255,.8); transition: all .12s; }
-  .tab.active { background: var(--cream); color: var(--green); }
+/* ── Header ── */
+#header { background: var(–green); color: white; padding: 16px 14px 12px; position: sticky; top: 0; z-index: 30; box-shadow: 0 2px 12px rgba(0,0,0,.22); }
+.header-inner { max-width: 860px; margin: 0 auto; }
+.header-top { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; }
+.header-top h1 { font-family: ‘Fraunces’, serif; font-size: 20px; font-weight: 700; letter-spacing: -.02em; }
+#photo-count { font-size: 11px; opacity: .7; }
+#search { width: 100%; padding: 8px 14px; border-radius: 20px; border: none; background: rgba(255,255,255,.18); color: white; font-size: 14px; font-family: inherit; outline: none; margin-bottom: 10px; }
+#search::placeholder { color: rgba(255,255,255,.55); }
+#tabs { display: flex; gap: 6px; }
+.tab { padding: 4px 14px; border-radius: 20px; border: none; cursor: pointer; font-size: 12px; font-weight: 700; font-family: inherit; background: transparent; color: rgba(255,255,255,.8); transition: all .12s; }
+.tab.active { background: var(–cream); color: var(–green); }
 
-  /* ── Loc pills ── */
-  #loc-bar { padding: 10px 12px 0; max-width: 860px; margin: 0 auto; overflow-x: auto; white-space: nowrap; -webkit-overflow-scrolling: touch; }
-  #loc-bar::-webkit-scrollbar { display: none; }
-  .loc-pill { display: inline-block; margin-right: 6px; padding: 4px 12px; border-radius: 16px; border: 1.5px solid var(--border); background: var(--cream); color: var(--muted); font-size: 11px; font-weight: 700; cursor: pointer; transition: all .12s; font-family: inherit; white-space: nowrap; }
-  .loc-pill.active { background: var(--green); color: white; border-color: var(--green); }
+/* ── Loc pills ── */
+#loc-bar { padding: 10px 12px 0; max-width: 860px; margin: 0 auto; overflow-x: auto; white-space: nowrap; -webkit-overflow-scrolling: touch; }
+#loc-bar::-webkit-scrollbar { display: none; }
+.loc-pill { display: inline-block; margin-right: 6px; padding: 4px 12px; border-radius: 16px; border: 1.5px solid var(–border); background: var(–cream); color: var(–muted); font-size: 11px; font-weight: 700; cursor: pointer; transition: all .12s; font-family: inherit; white-space: nowrap; }
+.loc-pill.active { background: var(–green); color: white; border-color: var(–green); }
 
-  /* ── Grid ── */
-  #grid-wrap { max-width: 860px; margin: 0 auto; padding: 10px 12px 100px; }
-  #count-label { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
-  #grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+/* ── Grid ── */
+#grid-wrap { max-width: 860px; margin: 0 auto; padding: 10px 12px 100px; }
+#count-label { font-size: 12px; color: var(–muted); margin-bottom: 10px; }
+#grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
 
-  /* ── Cards ── */
-  .card { background: var(--cream); border-radius: 14px; border: 1px solid var(--border); overflow: hidden; box-shadow: 0 2px 6px rgba(0,0,0,.05); cursor: pointer; transition: transform .12s, box-shadow .12s; -webkit-user-select: none; }
-  .card:active { transform: scale(.97); }
-  .card-photo { height: 120px; background: #e8e2d5; position: relative; overflow: hidden; display: flex; align-items: center; justify-content: center; }
-  .card-photo img { width: 100%; height: 100%; object-fit: cover; }
-  .card-photo .placeholder { font-size: 30px; opacity: .45; }
-  .card-photo .add-hint { position: absolute; bottom: 5px; right: 5px; background: rgba(0,0,0,.35); color: white; font-size: 9px; padding: 2px 5px; border-radius: 5px; font-family: inherit; }
-  .toxic-badge { position: absolute; top: 5px; right: 5px; background: var(--danger-bg); color: var(--danger-fg); font-size: 9px; font-weight: 700; padding: 2px 5px; border-radius: 6px; }
-  .card-body { padding: 9px 9px 8px; }
-  .card-name { font-family: 'Fraunces', serif; font-size: 12.5px; font-weight: 700; line-height: 1.25; margin-bottom: 2px; }
-  .card-sub { font-size: 10px; color: var(--muted); margin-bottom: 2px; line-height: 1.2; }
-  .card-loc { font-size: 10px; color: var(--muted); margin-bottom: 5px; }
-  .status-pill { font-size: 9.5px; font-weight: 700; padding: 2px 7px; border-radius: 8px; display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .card-updated { font-size: 9px; color: #aaa; margin-top: 3px; }
+/* ── Cards ── */
+.card { background: var(–cream); border-radius: 14px; border: 1px solid var(–border); overflow: hidden; box-shadow: 0 2px 6px rgba(0,0,0,.05); cursor: pointer; transition: transform .12s, box-shadow .12s; -webkit-user-select: none; }
+.card:active { transform: scale(.97); }
+.card-photo { height: 120px; background: #e8e2d5; position: relative; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+.card-photo img { width: 100%; height: 100%; object-fit: cover; }
+.card-photo .placeholder { font-size: 30px; opacity: .45; }
+.card-photo .add-hint { position: absolute; bottom: 5px; right: 5px; background: rgba(0,0,0,.35); color: white; font-size: 9px; padding: 2px 5px; border-radius: 5px; font-family: inherit; }
+.toxic-badge { position: absolute; top: 5px; right: 5px; background: var(–danger-bg); color: var(–danger-fg); font-size: 9px; font-weight: 700; padding: 2px 5px; border-radius: 6px; }
+.card-body { padding: 9px 9px 8px; }
+.card-name { font-family: ‘Fraunces’, serif; font-size: 12.5px; font-weight: 700; line-height: 1.25; margin-bottom: 2px; }
+.card-sub { font-size: 10px; color: var(–muted); margin-bottom: 2px; line-height: 1.2; }
+.card-loc { font-size: 10px; color: var(–muted); margin-bottom: 5px; }
+.status-pill { font-size: 9.5px; font-weight: 700; padding: 2px 7px; border-radius: 8px; display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card-updated { font-size: 9px; color: #aaa; margin-top: 3px; }
 
-  /* ── Overlay + Modal ── */
-  #overlay { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 100; display: flex; align-items: flex-end; justify-content: center; }
-  #overlay.hidden { display: none; }
-  #modal { background: var(--cream); width: 100%; max-width: 500px; max-height: 92vh; overflow-y: auto; border-radius: 18px 18px 0 0; padding: 0 18px 60px; -webkit-overflow-scrolling: touch; }
-  .modal-handle { width: 36px; height: 4px; background: var(--border); border-radius: 2px; margin: 12px auto 8px; }
-  .modal-title-row { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 14px; }
-  .modal-name { font-family: 'Fraunces', serif; font-size: 21px; font-weight: 700; line-height: 1.15; }
-  .modal-sub { font-size: 13px; color: var(--muted); margin-top: 2px; }
-  .modal-sci { font-size: 12px; color: var(--muted); font-style: italic; margin-top: 1px; }
-  #close-btn { background: #f0ebe0; border: none; border-radius: 50%; width: 30px; height: 30px; font-size: 18px; cursor: pointer; color: var(--muted); display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-left: 10px; font-family: inherit; }
+/* ── Overlay + Modal ── */
+#overlay { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 100; display: flex; align-items: flex-end; justify-content: center; }
+#overlay.hidden { display: none; }
+#modal { background: var(–cream); width: 100%; max-width: 500px; max-height: 92vh; overflow-y: auto; border-radius: 18px 18px 0 0; padding: 0 18px 60px; -webkit-overflow-scrolling: touch; }
+.modal-handle { width: 36px; height: 4px; background: var(–border); border-radius: 2px; margin: 12px auto 8px; }
+.modal-title-row { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 14px; }
+.modal-name { font-family: ‘Fraunces’, serif; font-size: 21px; font-weight: 700; line-height: 1.15; }
+.modal-sub { font-size: 13px; color: var(–muted); margin-top: 2px; }
+.modal-sci { font-size: 12px; color: var(–muted); font-style: italic; margin-top: 1px; }
+#close-btn { background: #f0ebe0; border: none; border-radius: 50%; width: 30px; height: 30px; font-size: 18px; cursor: pointer; color: var(–muted); display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-left: 10px; font-family: inherit; }
 
-  /* Photo area */
-  #photo-wrap { height: 240px; background: #e8e2d5; border-radius: 14px; overflow: hidden; display: flex; align-items: center; justify-content: center; position: relative; cursor: pointer; margin-bottom: 14px; }
-  #photo-wrap img { width: 100%; height: 100%; object-fit: cover; }
-  #photo-wrap .no-photo { text-align: center; color: var(--muted); }
-  #photo-wrap .no-photo span { font-size: 52px; display: block; }
-  #photo-wrap .no-photo p { font-size: 13px; margin-top: 6px; font-weight: 600; }
-  #photo-btn { position: absolute; bottom: 10px; right: 10px; background: var(--green); color: white; border: none; border-radius: 20px; padding: 7px 15px; font-size: 12px; font-weight: 700; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,.25); font-family: inherit; }
+/* Photo area */
+#photo-wrap { height: 240px; background: #e8e2d5; border-radius: 14px; overflow: hidden; display: flex; align-items: center; justify-content: center; position: relative; cursor: pointer; margin-bottom: 14px; }
+#photo-wrap img { width: 100%; height: 100%; object-fit: cover; }
+#photo-wrap .no-photo { text-align: center; color: var(–muted); }
+#photo-wrap .no-photo span { font-size: 52px; display: block; }
+#photo-wrap .no-photo p { font-size: 13px; margin-top: 6px; font-weight: 600; }
+#photo-btn { position: absolute; bottom: 10px; right: 10px; background: var(–green); color: white; border: none; border-radius: 20px; padding: 7px 15px; font-size: 12px; font-weight: 700; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,.25); font-family: inherit; }
 
-  /* Meta grid */
-  .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
-  .meta-cell { background: #f0ebe0; border-radius: 10px; padding: 8px 10px; }
-  .meta-label { font-size: 9px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 3px; }
-  .meta-val { font-size: 12px; line-height: 1.3; }
+/* Meta grid */
+.meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+.meta-cell { background: #f0ebe0; border-radius: 10px; padding: 8px 10px; }
+.meta-label { font-size: 9px; font-weight: 700; color: var(–muted); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 3px; }
+.meta-val { font-size: 12px; line-height: 1.3; }
 
-  /* Toxic warning */
-  .toxic-warn { background: var(--danger-bg); border: 1px solid #fca5a5; border-radius: 10px; padding: 9px 12px; margin-bottom: 12px; font-size: 12px; color: var(--danger-fg); font-weight: 700; }
+/* Toxic warning */
+.toxic-warn { background: var(–danger-bg); border: 1px solid #fca5a5; border-radius: 10px; padding: 9px 12px; margin-bottom: 12px; font-size: 12px; color: var(–danger-fg); font-weight: 700; }
 
-  /* Status / Notes */
-  .field-label { font-size: 10px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .07em; margin-bottom: 6px; }
-  .field-wrap { margin-bottom: 12px; }
-  .status-display { padding: 9px 12px; border-radius: 10px; font-size: 13px; font-weight: 600; line-height: 1.4; }
-  .notes-display { padding: 9px 12px; background: #f0ebe0; border-radius: 10px; font-size: 13px; min-height: 48px; line-height: 1.5; color: var(--muted); }
-  .notes-display.has-notes { color: #1e1a12; }
-  textarea { width: 100%; padding: 9px 11px; border-radius: 10px; border: 1.5px solid var(--green); font-size: 13px; outline: none; resize: vertical; font-family: inherit; background: white; }
+/* Status / Notes */
+.field-label { font-size: 10px; font-weight: 700; color: var(–muted); text-transform: uppercase; letter-spacing: .07em; margin-bottom: 6px; }
+.field-wrap { margin-bottom: 12px; }
+.status-display { padding: 9px 12px; border-radius: 10px; font-size: 13px; font-weight: 600; line-height: 1.4; }
+.notes-display { padding: 9px 12px; background: #f0ebe0; border-radius: 10px; font-size: 13px; min-height: 48px; line-height: 1.5; color: var(–muted); }
+.notes-display.has-notes { color: #1e1a12; }
+textarea { width: 100%; padding: 9px 11px; border-radius: 10px; border: 1.5px solid var(–green); font-size: 13px; outline: none; resize: vertical; font-family: inherit; background: white; }
 
-  /* Buttons */
-  .btn-row { display: flex; gap: 8px; margin-bottom: 8px; }
-  .btn { flex: 1; padding: 11px; border-radius: 12px; font-size: 14px; font-weight: 700; cursor: pointer; font-family: inherit; border: none; }
-  .btn-outline { background: white; border: 1.5px solid var(--border) !important; color: #1e1a12; }
-  .btn-primary { background: var(--green); color: white; }
-  .btn-edit { width: 100%; padding: 11px; border-radius: 12px; font-size: 14px; font-weight: 700; cursor: pointer; font-family: inherit; background: white; border: 1.5px solid var(--green); color: var(--green); }
-  .modal-updated { font-size: 11px; color: var(--muted); text-align: center; margin-top: 8px; }
+/* Buttons */
+.btn-row { display: flex; gap: 8px; margin-bottom: 8px; }
+.btn { flex: 1; padding: 11px; border-radius: 12px; font-size: 14px; font-weight: 700; cursor: pointer; font-family: inherit; border: none; }
+.btn-outline { background: white; border: 1.5px solid var(–border) !important; color: #1e1a12; }
+.btn-primary { background: var(–green); color: white; }
+.btn-edit { width: 100%; padding: 11px; border-radius: 12px; font-size: 14px; font-weight: 700; cursor: pointer; font-family: inherit; background: white; border: 1.5px solid var(–green); color: var(–green); }
+.modal-updated { font-size: 11px; color: var(–muted); text-align: center; margin-top: 8px; }
 
-  /* Loading */
-  #loading { text-align: center; padding: 60px 20px; color: var(--muted); font-size: 14px; }
+/* Loading */
+#loading { text-align: center; padding: 60px 20px; color: var(–muted); font-size: 14px; }
 
-  /* Spinner */
-  .spin { display: inline-block; width: 16px; height: 16px; border: 2px solid rgba(255,255,255,.3); border-top-color: white; border-radius: 50%; animation: spin .6s linear infinite; vertical-align: middle; margin-right: 4px; }
-  @keyframes spin { to { transform: rotate(360deg); } }
+/* Spinner */
+.spin { display: inline-block; width: 16px; height: 16px; border: 2px solid rgba(255,255,255,.3); border-top-color: white; border-radius: 50%; animation: spin .6s linear infinite; vertical-align: middle; margin-right: 4px; }
+@keyframes spin { to { transform: rotate(360deg); } }
 </style>
+
 </head>
 <body>
 
 <!-- ── Header ── -->
+
 <div id="header">
   <div class="header-inner">
     <div class="header-top">
       <h1>🌿 Shiloh's Garden</h1>
-      <span id="photo-count"></span>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span id="photo-count"></span>
+        <button id="export-btn" style="background:rgba(255,255,255,.2);border:none;border-radius:16px;color:white;font-size:11px;font-weight:700;padding:4px 10px;cursor:pointer;font-family:inherit;white-space:nowrap">⬇ Export</button>
+      </div>
     </div>
     <input type="search" id="search" placeholder="Search by name, genus, or area…" autocomplete="off">
     <div id="tabs">
@@ -135,9 +141,11 @@
 </div>
 
 <!-- ── Location pills ── -->
+
 <div id="loc-bar"></div>
 
 <!-- ── Main grid ── -->
+
 <div id="grid-wrap">
   <div id="count-label"></div>
   <div id="loading">Loading your garden…</div>
@@ -145,6 +153,7 @@
 </div>
 
 <!-- ── Detail modal ── -->
+
 <div id="overlay" class="hidden">
   <div id="modal">
     <div class="modal-handle"></div>
@@ -183,7 +192,9 @@
 <input type="file" id="file-input" accept="image/*">
 
 <!-- ── Supabase ── -->
+
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
 <script>
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -210,14 +221,15 @@ const PLANTS = [
   // Room of Requirement
   {id:'i08',name:'Variegated String of Pearls',sci:"Curio rowleyanus 'Variegatus'",type:'indoor',loc:'Room of Requirement',pot:'White ribbed ceramic cup',status:'⚠ Recovering — repotted April 6. No water for 1 week.',toxic:false},
   {id:'i09',name:'Jade Plant',sci:'Crassula ovata',type:'indoor',loc:'Room of Requirement',pot:'Small gray ceramic',status:'Healthy — water when dry',toxic:false},
-  {id:'i21',name:'Empty Pot',sub:'Oversized white ceramic bowl — awaiting new plant',sci:'',type:'indoor',loc:'Room of Requirement',pot:'Oversized white ceramic bowl',status:'Empty — formerly held Variegated String of Pearls',toxic:false},
+  {id:'i21',name:'Red Prayer Plant',sci:'Maranta leuconeura var. erythroneura',type:'indoor',loc:'Family Room',pot:'Oversized white ceramic bowl',status:'Newly planted — establishing',toxic:false},
+  {id:'i22',name:'Moses in the Cradle',sci:'Tradescantia spathacea',type:'indoor',loc:'Room of Requirement',pot:'Blue ribbed ceramic with saucer',status:'Newly planted — establishing',toxic:true},
   // The Archives
   {id:'i10',name:'Spider Plant',sci:'Chlorophytum comosum',type:'indoor',loc:'The Archives',pot:'Glossy black ceramic cauldron bowl',status:'Healthy — no action needed',toxic:false},
   {id:'i11',name:'Pothos',sub:'Propagated Cutting',sci:'Epipremnum aureum',type:'indoor',loc:'The Archives',pot:'White/gray round ceramic',status:'Established — healthy',toxic:false},
   {id:'i13',name:'String of Coins',sci:'Peperomia rotundifolia',type:'indoor',loc:'The Archives',pot:'White cat-face ceramic (green drain insert)',status:'Newly repotted April 6 — establishing',toxic:false},
   {id:'i14',name:'Lithops',sub:'Living Stones',sci:'Lithops sp.',type:'indoor',loc:'The Archives',pot:'Black cat-face ceramic (terracotta insert)',status:'⚠ Newly repotted April 6 — no water for 2 weeks',toxic:true},
   {id:'i15',name:'Fukien Tea Bonsai',sci:'Carmona retusa',type:'indoor',loc:'The Archives',pot:'White/cream ceramic bonsai pot with saucer',status:'⚠ TOXIC TO DOGS — dog-free room only. Newly repotted April 6.',toxic:true},
-  {id:'i16',name:'Empty Pot',sub:'White spider pot — awaiting new plant',sci:'',type:'indoor',loc:'The Archives',pot:'White spider pot',status:'Empty — awaiting new 2" plant',toxic:false},
+  {id:'i16',name:'Echeveria',sub:'best-guess ID — multi-headed blue-grey rosette',sci:'Echeveria sp.',type:'indoor',loc:'The Archives',pot:'White spider pot',status:'Newly planted — establishing',toxic:false},
   // Kitchen
   {id:'i17',name:'Succulent Rosette',sub:'best-guess: Pachyveria/Graptoveria',sci:'Pachyveria sp. or Graptoveria sp.',type:'indoor',loc:'Kitchen',pot:'Pink textured ceramic cylinder',status:'Healthy — water sparingly',toxic:false},
   {id:'i18',name:'Stacked Succulent',sub:'best-guess: Crassula perforata',sci:'Crassula perforata or similar',type:'indoor',loc:'Kitchen',pot:'White cat-face ceramic',status:'Healthy — water sparingly',toxic:false},
@@ -574,6 +586,64 @@ async function downloadPhoto(id) {
   btn.disabled = false;
 }
 
+// ── Export all data ──────────────────────────────────────────────────────────
+async function exportAll() {
+  const btn = document.getElementById('export-btn');
+  btn.innerHTML = '<span class="spin"></span> Exporting…';
+  btn.disabled = true;
+
+  try {
+    const exportData = [];
+    for (const p of PLANTS) {
+      const ov = overrides[p.id] || {};
+      const entry = {
+        id: p.id,
+        name: p.name,
+        sub: p.sub || null,
+        sci: p.sci || null,
+        type: p.type,
+        loc: p.loc,
+        pot: p.pot,
+        toxic: p.toxic,
+        status: ov.status || p.status,
+        notes: ov.notes || null,
+        updated_at: ov.updated_at || null,
+        photo: null,
+      };
+
+      // Fetch photo as base64 if it exists
+      if (photoURLs[p.id]) {
+        try {
+          const resp = await fetch(photoURLs[p.id]);
+          const blob = await resp.blob();
+          entry.photo = await new Promise(res => {
+            const reader = new FileReader();
+            reader.onload = () => res(reader.result); // data:image/jpeg;base64,...
+            reader.readAsDataURL(blob);
+          });
+        } catch { /* skip failed photos */ }
+      }
+
+      exportData.push(entry);
+    }
+
+    const json = JSON.stringify({ exported: new Date().toISOString(), plants: exportData }, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `garden-export-${new Date().toISOString().slice(0,10)}.json`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  } catch (e) {
+    alert('Export failed: ' + e.message);
+  }
+
+  btn.innerHTML = '⬇ Export';
+  btn.disabled = false;
+}
+
+document.getElementById('export-btn').addEventListener('click', exportAll);
+
 // ── Event listeners ──────────────────────────────────────────────────────────
 document.getElementById('search').addEventListener('input', () => {
   locFilter = 'all';
@@ -625,5 +695,6 @@ document.getElementById('modal').addEventListener('touchend', e => {
 // ── Boot ────────────────────────────────────────────────────────────────────
 loadData();
 </script>
+
 </body>
 </html>
