@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -26,99 +27,101 @@
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
   html, body { height: 100%; font-family: 'Nunito', sans-serif; background: var(--bg); color: #1e1a12; overscroll-behavior: none; }
 
-  /* ── Header ── */
-  #header { background: var(--green); color: white; padding: 16px 14px 12px; position: sticky; top: 0; z-index: 30; box-shadow: 0 2px 12px rgba(0,0,0,.22); }
-  .header-inner { max-width: 860px; margin: 0 auto; }
-  .header-top { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; }
-  .header-top h1 { font-family: 'Fraunces', serif; font-size: 20px; font-weight: 700; letter-spacing: -.02em; }
-  #photo-count { font-size: 11px; opacity: .7; }
-  #search { width: 100%; padding: 8px 14px; border-radius: 20px; border: none; background: rgba(255,255,255,.18); color: white; font-size: 14px; font-family: inherit; outline: none; margin-bottom: 10px; }
-  #search::placeholder { color: rgba(255,255,255,.55); }
-  #tabs { display: flex; gap: 6px; }
-  .tab { padding: 4px 14px; border-radius: 20px; border: none; cursor: pointer; font-size: 12px; font-weight: 700; font-family: inherit; background: transparent; color: rgba(255,255,255,.8); transition: all .12s; }
-  .tab.active { background: var(--cream); color: var(--green); }
+/* ── Header ── */
+#header { background: var(–green); color: white; padding: 16px 14px 12px; position: sticky; top: 0; z-index: 30; box-shadow: 0 2px 12px rgba(0,0,0,.22); }
+.header-inner { max-width: 860px; margin: 0 auto; }
+.header-top { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; }
+.header-top h1 { font-family: ‘Fraunces’, serif; font-size: 20px; font-weight: 700; letter-spacing: -.02em; }
+#photo-count { font-size: 11px; opacity: .7; }
+#search { width: 100%; padding: 8px 14px; border-radius: 20px; border: none; background: rgba(255,255,255,.18); color: white; font-size: 14px; font-family: inherit; outline: none; margin-bottom: 10px; }
+#search::placeholder { color: rgba(255,255,255,.55); }
+#tabs { display: flex; gap: 6px; }
+.tab { padding: 4px 14px; border-radius: 20px; border: none; cursor: pointer; font-size: 12px; font-weight: 700; font-family: inherit; background: transparent; color: rgba(255,255,255,.8); transition: all .12s; }
+.tab.active { background: var(–cream); color: var(–green); }
 
-  /* ── Loc pills ── */
-  #loc-bar { padding: 10px 12px 0; max-width: 860px; margin: 0 auto; overflow-x: auto; white-space: nowrap; -webkit-overflow-scrolling: touch; }
-  #loc-bar::-webkit-scrollbar { display: none; }
-  .loc-pill { display: inline-block; margin-right: 6px; padding: 4px 12px; border-radius: 16px; border: 1.5px solid var(--border); background: var(--cream); color: var(--muted); font-size: 11px; font-weight: 700; cursor: pointer; transition: all .12s; font-family: inherit; white-space: nowrap; }
-  .loc-pill.active { background: var(--green); color: white; border-color: var(--green); }
+/* ── Loc pills ── */
+#loc-bar { padding: 10px 12px 0; max-width: 860px; margin: 0 auto; overflow-x: auto; white-space: nowrap; -webkit-overflow-scrolling: touch; }
+#loc-bar::-webkit-scrollbar { display: none; }
+.loc-pill { display: inline-block; margin-right: 6px; padding: 4px 12px; border-radius: 16px; border: 1.5px solid var(–border); background: var(–cream); color: var(–muted); font-size: 11px; font-weight: 700; cursor: pointer; transition: all .12s; font-family: inherit; white-space: nowrap; }
+.loc-pill.active { background: var(–green); color: white; border-color: var(–green); }
 
-  /* ── Grid ── */
-  #grid-wrap { max-width: 860px; margin: 0 auto; padding: 10px 12px 100px; }
-  #count-label { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
-  #grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+/* ── Grid ── */
+#grid-wrap { max-width: 860px; margin: 0 auto; padding: 10px 12px 100px; }
+#count-label { font-size: 12px; color: var(–muted); margin-bottom: 10px; }
+#grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
 
-  /* ── Cards ── */
-  .card { background: var(--cream); border-radius: 14px; border: 1px solid var(--border); overflow: hidden; box-shadow: 0 2px 6px rgba(0,0,0,.05); cursor: pointer; transition: transform .12s, box-shadow .12s; -webkit-user-select: none; }
-  .card:active { transform: scale(.97); }
-  .card-photo { height: 120px; background: #e8e2d5; position: relative; overflow: hidden; display: flex; align-items: center; justify-content: center; }
-  .card-photo img { width: 100%; height: 100%; object-fit: cover; }
-  .card-photo .placeholder { font-size: 30px; opacity: .45; }
-  .card-photo .add-hint { position: absolute; bottom: 5px; right: 5px; background: rgba(0,0,0,.35); color: white; font-size: 9px; padding: 2px 5px; border-radius: 5px; font-family: inherit; }
-  .toxic-badge { position: absolute; top: 5px; right: 5px; background: var(--danger-bg); color: var(--danger-fg); font-size: 9px; font-weight: 700; padding: 2px 5px; border-radius: 6px; }
-  .card-body { padding: 9px 9px 8px; }
-  .card-name { font-family: 'Fraunces', serif; font-size: 12.5px; font-weight: 700; line-height: 1.25; margin-bottom: 2px; }
-  .card-sub { font-size: 10px; color: var(--muted); margin-bottom: 2px; line-height: 1.2; }
-  .card-loc { font-size: 10px; color: var(--muted); margin-bottom: 5px; }
-  .status-pill { font-size: 9.5px; font-weight: 700; padding: 2px 7px; border-radius: 8px; display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .card-updated { font-size: 9px; color: #aaa; margin-top: 3px; }
+/* ── Cards ── */
+.card { background: var(–cream); border-radius: 14px; border: 1px solid var(–border); overflow: hidden; box-shadow: 0 2px 6px rgba(0,0,0,.05); cursor: pointer; transition: transform .12s, box-shadow .12s; -webkit-user-select: none; }
+.card:active { transform: scale(.97); }
+.card-photo { height: 120px; background: #e8e2d5; position: relative; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+.card-photo img { width: 100%; height: 100%; object-fit: cover; }
+.card-photo .placeholder { font-size: 30px; opacity: .45; }
+.card-photo .add-hint { position: absolute; bottom: 5px; right: 5px; background: rgba(0,0,0,.35); color: white; font-size: 9px; padding: 2px 5px; border-radius: 5px; font-family: inherit; }
+.toxic-badge { position: absolute; top: 5px; right: 5px; background: var(–danger-bg); color: var(–danger-fg); font-size: 9px; font-weight: 700; padding: 2px 5px; border-radius: 6px; }
+.card-body { padding: 9px 9px 8px; }
+.card-name { font-family: ‘Fraunces’, serif; font-size: 12.5px; font-weight: 700; line-height: 1.25; margin-bottom: 2px; }
+.card-sub { font-size: 10px; color: var(–muted); margin-bottom: 2px; line-height: 1.2; }
+.card-loc { font-size: 10px; color: var(–muted); margin-bottom: 5px; }
+.status-pill { font-size: 9.5px; font-weight: 700; padding: 2px 7px; border-radius: 8px; display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card-updated { font-size: 9px; color: #aaa; margin-top: 3px; }
 
-  /* ── Overlay + Modal ── */
-  #overlay { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 100; display: flex; align-items: flex-end; justify-content: center; }
-  #overlay.hidden { display: none; }
-  #modal { background: var(--cream); width: 100%; max-width: 500px; max-height: 92vh; overflow-y: auto; border-radius: 18px 18px 0 0; padding: 0 18px 60px; -webkit-overflow-scrolling: touch; }
-  .modal-handle { width: 36px; height: 4px; background: var(--border); border-radius: 2px; margin: 12px auto 8px; }
-  .modal-title-row { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 14px; }
-  .modal-name { font-family: 'Fraunces', serif; font-size: 21px; font-weight: 700; line-height: 1.15; }
-  .modal-sub { font-size: 13px; color: var(--muted); margin-top: 2px; }
-  .modal-sci { font-size: 12px; color: var(--muted); font-style: italic; margin-top: 1px; }
-  #close-btn { background: #f0ebe0; border: none; border-radius: 50%; width: 30px; height: 30px; font-size: 18px; cursor: pointer; color: var(--muted); display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-left: 10px; font-family: inherit; }
+/* ── Overlay + Modal ── */
+#overlay { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 100; display: flex; align-items: flex-end; justify-content: center; }
+#overlay.hidden { display: none; }
+#modal { background: var(–cream); width: 100%; max-width: 500px; max-height: 92vh; overflow-y: auto; border-radius: 18px 18px 0 0; padding: 0 18px 60px; -webkit-overflow-scrolling: touch; }
+.modal-handle { width: 36px; height: 4px; background: var(–border); border-radius: 2px; margin: 12px auto 8px; }
+.modal-title-row { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 14px; }
+.modal-name { font-family: ‘Fraunces’, serif; font-size: 21px; font-weight: 700; line-height: 1.15; }
+.modal-sub { font-size: 13px; color: var(–muted); margin-top: 2px; }
+.modal-sci { font-size: 12px; color: var(–muted); font-style: italic; margin-top: 1px; }
+#close-btn { background: #f0ebe0; border: none; border-radius: 50%; width: 30px; height: 30px; font-size: 18px; cursor: pointer; color: var(–muted); display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-left: 10px; font-family: inherit; }
 
-  /* Photo area */
-  #photo-wrap { height: 240px; background: #e8e2d5; border-radius: 14px; overflow: hidden; display: flex; align-items: center; justify-content: center; position: relative; cursor: pointer; margin-bottom: 14px; }
-  #photo-wrap img { width: 100%; height: 100%; object-fit: cover; }
-  #photo-wrap .no-photo { text-align: center; color: var(--muted); }
-  #photo-wrap .no-photo span { font-size: 52px; display: block; }
-  #photo-wrap .no-photo p { font-size: 13px; margin-top: 6px; font-weight: 600; }
-  #photo-btn { position: absolute; bottom: 10px; right: 10px; background: var(--green); color: white; border: none; border-radius: 20px; padding: 7px 15px; font-size: 12px; font-weight: 700; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,.25); font-family: inherit; }
+/* Photo area */
+#photo-wrap { height: 240px; background: #e8e2d5; border-radius: 14px; overflow: hidden; display: flex; align-items: center; justify-content: center; position: relative; cursor: pointer; margin-bottom: 14px; }
+#photo-wrap img { width: 100%; height: 100%; object-fit: cover; }
+#photo-wrap .no-photo { text-align: center; color: var(–muted); }
+#photo-wrap .no-photo span { font-size: 52px; display: block; }
+#photo-wrap .no-photo p { font-size: 13px; margin-top: 6px; font-weight: 600; }
+#photo-btn { position: absolute; bottom: 10px; right: 10px; background: var(–green); color: white; border: none; border-radius: 20px; padding: 7px 15px; font-size: 12px; font-weight: 700; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,.25); font-family: inherit; }
 
-  /* Meta grid */
-  .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
-  .meta-cell { background: #f0ebe0; border-radius: 10px; padding: 8px 10px; }
-  .meta-label { font-size: 9px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 3px; }
-  .meta-val { font-size: 12px; line-height: 1.3; }
+/* Meta grid */
+.meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+.meta-cell { background: #f0ebe0; border-radius: 10px; padding: 8px 10px; }
+.meta-label { font-size: 9px; font-weight: 700; color: var(–muted); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 3px; }
+.meta-val { font-size: 12px; line-height: 1.3; }
 
-  /* Toxic warning */
-  .toxic-warn { background: var(--danger-bg); border: 1px solid #fca5a5; border-radius: 10px; padding: 9px 12px; margin-bottom: 12px; font-size: 12px; color: var(--danger-fg); font-weight: 700; }
+/* Toxic warning */
+.toxic-warn { background: var(–danger-bg); border: 1px solid #fca5a5; border-radius: 10px; padding: 9px 12px; margin-bottom: 12px; font-size: 12px; color: var(–danger-fg); font-weight: 700; }
 
-  /* Status / Notes */
-  .field-label { font-size: 10px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .07em; margin-bottom: 6px; }
-  .field-wrap { margin-bottom: 12px; }
-  .status-display { padding: 9px 12px; border-radius: 10px; font-size: 13px; font-weight: 600; line-height: 1.4; }
-  .notes-display { padding: 9px 12px; background: #f0ebe0; border-radius: 10px; font-size: 13px; min-height: 48px; line-height: 1.5; color: var(--muted); }
-  .notes-display.has-notes { color: #1e1a12; }
-  textarea { width: 100%; padding: 9px 11px; border-radius: 10px; border: 1.5px solid var(--green); font-size: 13px; outline: none; resize: vertical; font-family: inherit; background: white; }
+/* Status / Notes */
+.field-label { font-size: 10px; font-weight: 700; color: var(–muted); text-transform: uppercase; letter-spacing: .07em; margin-bottom: 6px; }
+.field-wrap { margin-bottom: 12px; }
+.status-display { padding: 9px 12px; border-radius: 10px; font-size: 13px; font-weight: 600; line-height: 1.4; }
+.notes-display { padding: 9px 12px; background: #f0ebe0; border-radius: 10px; font-size: 13px; min-height: 48px; line-height: 1.5; color: var(–muted); }
+.notes-display.has-notes { color: #1e1a12; }
+textarea { width: 100%; padding: 9px 11px; border-radius: 10px; border: 1.5px solid var(–green); font-size: 13px; outline: none; resize: vertical; font-family: inherit; background: white; }
 
-  /* Buttons */
-  .btn-row { display: flex; gap: 8px; margin-bottom: 8px; }
-  .btn { flex: 1; padding: 11px; border-radius: 12px; font-size: 14px; font-weight: 700; cursor: pointer; font-family: inherit; border: none; }
-  .btn-outline { background: white; border: 1.5px solid var(--border) !important; color: #1e1a12; }
-  .btn-primary { background: var(--green); color: white; }
-  .btn-edit { width: 100%; padding: 11px; border-radius: 12px; font-size: 14px; font-weight: 700; cursor: pointer; font-family: inherit; background: white; border: 1.5px solid var(--green); color: var(--green); }
-  .modal-updated { font-size: 11px; color: var(--muted); text-align: center; margin-top: 8px; }
+/* Buttons */
+.btn-row { display: flex; gap: 8px; margin-bottom: 8px; }
+.btn { flex: 1; padding: 11px; border-radius: 12px; font-size: 14px; font-weight: 700; cursor: pointer; font-family: inherit; border: none; }
+.btn-outline { background: white; border: 1.5px solid var(–border) !important; color: #1e1a12; }
+.btn-primary { background: var(–green); color: white; }
+.btn-edit { width: 100%; padding: 11px; border-radius: 12px; font-size: 14px; font-weight: 700; cursor: pointer; font-family: inherit; background: white; border: 1.5px solid var(–green); color: var(–green); }
+.modal-updated { font-size: 11px; color: var(–muted); text-align: center; margin-top: 8px; }
 
-  /* Loading */
-  #loading { text-align: center; padding: 60px 20px; color: var(--muted); font-size: 14px; }
+/* Loading */
+#loading { text-align: center; padding: 60px 20px; color: var(–muted); font-size: 14px; }
 
-  /* Spinner */
-  .spin { display: inline-block; width: 16px; height: 16px; border: 2px solid rgba(255,255,255,.3); border-top-color: white; border-radius: 50%; animation: spin .6s linear infinite; vertical-align: middle; margin-right: 4px; }
-  @keyframes spin { to { transform: rotate(360deg); } }
+/* Spinner */
+.spin { display: inline-block; width: 16px; height: 16px; border: 2px solid rgba(255,255,255,.3); border-top-color: white; border-radius: 50%; animation: spin .6s linear infinite; vertical-align: middle; margin-right: 4px; }
+@keyframes spin { to { transform: rotate(360deg); } }
 </style>
+
 </head>
 <body>
 
 <!-- ── Header ── -->
+
 <div id="header">
   <div class="header-inner">
     <div class="header-top">
@@ -138,9 +141,11 @@
 </div>
 
 <!-- ── Location pills ── -->
+
 <div id="loc-bar"></div>
 
 <!-- ── Main grid ── -->
+
 <div id="grid-wrap">
   <div id="count-label"></div>
   <div id="loading">Loading your garden…</div>
@@ -148,6 +153,7 @@
 </div>
 
 <!-- ── Detail modal ── -->
+
 <div id="overlay" class="hidden">
   <div id="modal">
     <div class="modal-handle"></div>
@@ -186,7 +192,9 @@
 <input type="file" id="file-input" accept="image/*">
 
 <!-- ── Supabase ── -->
+
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
 <script>
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -211,10 +219,14 @@ const PLANTS = [
   {id:'i06',name:'Bronze Venus Maidenhair Fern',sci:'Adiantum hispidulum',type:'indoor',loc:'Family Room',pot:'White/cream glazed ceramic bowl',status:'Healthy — maintain humidity',toxic:false},
   {id:'i07',name:'Succulent Combo',sub:'best-guess: Gasteria + companion',sci:'Gasteria sp. / Senecio sp.',type:'indoor',loc:'Family Room',pot:'White ribbed ceramic',status:'Healthy — water sparingly',toxic:false},
   {id:'i21',name:'Red Prayer Plant',sci:'Maranta leuconeura var. erythroneura',type:'indoor',loc:'Family Room',pot:'Oversized white ceramic bowl',status:'Newly planted — establishing',toxic:false},
+  {id:'i26',name:'String of Bananas',sci:'Curio radicans',type:'indoor',loc:'Family Room',pot:'Dark round ceramic with saucer',status:'Newly acquired — establishing',toxic:false},
+  {id:'i27',name:'Tuberous Begonia',sub:'Nonstop Joy Rose Picotee',sci:'Begonia × tuberhybrida',type:'indoor',loc:'Family Room',pot:'White round ceramic self-watering',status:'Newly acquired — blooming',toxic:true},
+  {id:'i28',name:'Philodendron Brasil',sci:'Philodendron hederaceum var. oxycardium',type:'indoor',loc:'Family Room',pot:'Blue ceramic pot with saucer',status:'Newly acquired — establishing',toxic:true},
   // Room of Requirement
-  {id:'i08',name:'Variegated String of Pearls',sci:"Curio rowleyanus 'Variegatus'",type:'indoor',loc:'Room of Requirement',pot:'White ribbed ceramic cup',status:'⚠ Recovering — repotted April 6. No water for 1 week.',toxic:false},
+  {id:'i25',name:'Echeveria',sci:'Echeveria sp.',type:'indoor',loc:'Room of Requirement',pot:'White ribbed ceramic cup',status:'Newly acquired — establishing',toxic:false},
   {id:'i09',name:'Jade Plant',sci:'Crassula ovata',type:'indoor',loc:'Room of Requirement',pot:'Small gray ceramic',status:'Healthy — water when dry',toxic:false},
   {id:'i22',name:'Moses in the Cradle',sci:'Tradescantia spathacea',type:'indoor',loc:'Room of Requirement',pot:'Blue ribbed ceramic with saucer',status:'Newly planted — establishing',toxic:true},
+  {id:'i29',name:'Ficus Bonsai',sub:'Chinese Banyan',sci:'Ficus microcarpa',type:'indoor',loc:'Room of Requirement',pot:'Burgundy rectangular ceramic bonsai pot with saucer',status:'Newly acquired — establishing',toxic:true},
   // The Archives
   {id:'i10',name:'Spider Plant',sci:'Chlorophytum comosum',type:'indoor',loc:'The Archives',pot:'Glossy black ceramic cauldron bowl',status:'Healthy — no action needed',toxic:false},
   {id:'i11',name:'Pothos',sub:'Propagated Cutting',sci:'Epipremnum aureum',type:'indoor',loc:'The Archives',pot:'White/gray round ceramic',status:'Established — healthy',toxic:false},
@@ -237,8 +249,8 @@ const PLANTS = [
   {id:'o47',name:'Strawberry — Pretty in Pink ×2',sci:'Fragaria × ananassa',type:'outdoor',loc:'Strawberry Planter — Elevated',pot:'#1 — Cedarcraft self-watering',status:'Newly planted April 13 — establishing',toxic:false},
   {id:'o48',name:'Strawberry — Chandler ×3',sci:'Fragaria × ananassa',type:'outdoor',loc:'Strawberry Planter — Elevated',pot:'#1 — Cedarcraft self-watering',status:'Newly planted April 12 — one already flowering',toxic:false},
   {id:'o49',name:'Strawberry — Delizz ×2',sub:'Everbearing',sci:'Fragaria × ananassa',type:'outdoor',loc:'Strawberry Planter — Elevated',pot:'#1 — Cedarcraft self-watering',status:'Newly planted April 13 — establishing',toxic:false},
-  {id:'o50',name:'Strawberry — Beltran',sci:'Fragaria × ananassa',type:'outdoor',loc:'Strawberry Planter — Elevated',pot:'#1 — Cedarcraft self-watering',status:'⚠ Struggling — low survival outlook',toxic:false},
   {id:'o58',name:'Strawberry — Berries Galore New Rose',sub:'Everbearing',sci:'Fragaria × ananassa',type:'outdoor',loc:'Strawberry Planter — Elevated',pot:'#1 — Cedarcraft self-watering',status:'Newly planted — establishing',toxic:false},
+  {id:'o51',name:'Strawberry — Tristan',sub:'Deep rose flowers, everbearing',sci:'Fragaria × ananassa',type:'outdoor',loc:'Strawberry Planter — Elevated',pot:'#1 — Cedarcraft self-watering',status:'Transplanted from hanging basket — establishing',toxic:false},
   // Herb Planter (Best Choice Products cedar, ~72×23×8.75", NOT self-watering)
   {id:'o01',name:'Upright Rosemary',sci:'Salvia rosmarinus',type:'outdoor',loc:'Herb Planter — Elevated',pot:'#41 — dry end',status:'Establishing — do not harvest yet',toxic:false},
   {id:'o02',name:'English Lavender',sci:'Lavandula angustifolia',type:'outdoor',loc:'Herb Planter — Elevated',pot:'#41 — dry end',status:'Healthy — no action needed',toxic:false},
@@ -300,19 +312,17 @@ const PLANTS = [
   // Echinacea
   {id:'o41',name:'Echinacea — Pale Purple Coneflower',sci:'Echinacea pallida',type:'outdoor',loc:'Medicinal & Specialty — Dog-Free',pot:'#37 — 11" round terracotta',status:'Healthy — no action needed',toxic:false},
   // Hanging Basket
-  {id:'o51',name:'Strawberry — Tristan',sub:'Deep rose flowers, everbearing',sci:'Fragaria × ananassa',type:'outdoor',loc:'Hanging Basket',pot:'#44 — hanging basket',status:'Newly planted April 13 — establishing',toxic:false},
   // Berries
   {id:'o60',name:'Blackberry — Taste of Heaven',sci:"Rubus 'Ponca'",type:'outdoor',loc:'Berries — Dog-Free',pot:'Nursery pot — awaiting in-ground planting',status:'Newly purchased — awaiting permanent placement',toxic:false},
   {id:'o61',name:'Blackberry — Von',sci:"Rubus 'Von'",type:'outdoor',loc:'Berries — Dog-Free',pot:'Nursery pot — awaiting in-ground planting',status:'Newly purchased — awaiting permanent placement',toxic:false},
-  {id:'o62',name:'Blueberry — Tifblue',sci:"Vaccinium corymbosum 'Tifblue'",type:'outdoor',loc:'Berries — Dog-Free',pot:'Nursery pot — awaiting 25-gal VIVOSUN fabric grow bag',status:'Newly purchased — awaiting potting in acidic mix',toxic:false},
-  {id:'o63',name:'Blueberry — Powderblue Rabbiteye',sci:"Vaccinium ashei 'Powderblue'",type:'outdoor',loc:'Berries — Dog-Free',pot:'Nursery pot — awaiting 25-gal VIVOSUN fabric grow bag',status:'Newly purchased — awaiting potting in acidic mix',toxic:false},
+  {id:'o62',name:'Blueberry — Tifblue',sci:"Vaccinium corymbosum 'Tifblue'",type:'outdoor',loc:'Berries — Dog-Free',pot:'25-gal VIVOSUN fabric grow bag',status:'Potted in fabric grow bag — establishing',toxic:false},
+  {id:'o63',name:'Blueberry — Powderblue Rabbiteye',sci:"Vaccinium ashei 'Powderblue'",type:'outdoor',loc:'Berries — Dog-Free',pot:'25-gal VIVOSUN fabric grow bag',status:'Potted in fabric grow bag — establishing',toxic:false},
   {id:'o42',name:'Marjoram',sub:'Transplanted from cedar planter',sci:'Origanum majorana',type:'outdoor',loc:'Culinary Herbs — Dog-Free',pot:'#38 — 7" square plastic',status:'Transplanted April 6 — recovering',toxic:false},
   
   {id:'o44',name:"Juniper Bonsai — Dwarf 'Nana'",sci:"Juniperus procumbens 'Nana'",type:'outdoor',loc:'Ornamentals — Dog-Free',pot:'#40 — red ceramic bonsai pot with saucer',status:'⚠ Likely dead — ripped from pot',toxic:true},
   // Empty Pots
-  {id:'ep01',name:'Empty Pot',sub:'White round ceramic',sci:'',type:'indoor',loc:'Empty Pots',pot:'White round ceramic (was i03 Polka Dot Plant)',status:'Empty — available',toxic:false},
-  {id:'ep02',name:'Empty Pot',sub:'8" round gray basalt',sci:'',type:'outdoor',loc:'Empty Pots',pot:'#39 — 8" round gray basalt (was o43 Stevia Seeds)',status:'Empty — available',toxic:false},
-  {id:'ep03',name:'Empty Pot',sub:'Dark round ceramic with saucer',sci:'',type:'indoor',loc:'Empty Pots',pot:'Dark round ceramic with saucer (was i19 Venus Flytrap)',status:'Empty — available',toxic:false},
+  {id:'ep02',name:'Empty Pot',sub:'8" round gray basalt',sci:'',type:'outdoor',loc:'Empty Pots',pot:'#39 — 8" round gray basalt (was o43 Stevia Seeds)',status:'⚠ Lavender cuttings from o18 — rooting attempt, check May 25',toxic:false},
+  {id:'ep04',name:'Empty Pot',sub:'Hanging basket',sci:'',type:'outdoor',loc:'Empty Pots',pot:'#44 — hanging basket (was o51 Tristan)',status:'Empty — available',toxic:false},
 ];
 
 // ── State ───────────────────────────────────────────────────────────────────
@@ -698,5 +708,6 @@ document.getElementById('modal').addEventListener('touchend', e => {
 // ── Boot ────────────────────────────────────────────────────────────────────
 loadData();
 </script>
+
 </body>
 </html>
