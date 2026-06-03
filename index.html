@@ -142,6 +142,7 @@
       <button class="tab active" data-tab="all">All</button>
       <button class="tab" data-tab="indoor">Indoor</button>
       <button class="tab" data-tab="outdoor">Outdoor</button>
+      <button class="tab" data-tab="attention">⚠ Attention<span id="attention-count" style="display:none;margin-left:5px;background:var(--danger-bg);color:var(--danger-fg);font-size:10px;font-weight:700;padding:1px 6px;border-radius:8px"></span></button>
     </div>
   </div>
 </div>
@@ -594,11 +595,34 @@ async function logCareEvent(plantId, kind) {
 // ── Render helpers ──────────────────────────────────────────────────────────
 function getStatus(plant) { return overrides[plant.id]?.status || plant.status; }
 
+// True if a plant should surface in the "Attention" tab — either its status
+// text flags it (⚠/☠) or it's overdue on water/feed cadence.
+function needsAttention(p) {
+  if (p.archived_at) return false;
+  const st = (getStatus(p) || '').toLowerCase();
+  if (st.includes('⚠') || st.includes('☠') || st.includes('urgent') || st.includes('overdue')) return true;
+  if (p.water_every_days) {
+    const w = careStatus(p, 'water', p.water_every_days);
+    if (w.dueIn !== null && w.dueIn <= 0) return true;
+  }
+  if (p.feed_every_days) {
+    const f = careStatus(p, 'feed', p.feed_every_days);
+    if (f.dueIn !== null && f.dueIn <= 0) return true;
+  }
+  return false;
+}
+
+function tabMatches(p) {
+  if (tab === 'all')       return true;
+  if (tab === 'attention') return needsAttention(p);
+  return p.type === tab;
+}
+
 function getFilteredPlants() {
   const q = document.getElementById('search').value.trim().toLowerCase();
   return PLANTS.filter(p => {
     if (p.archived_at) return false;
-    if (tab !== 'all' && p.type !== tab) return false;
+    if (!tabMatches(p)) return false;
     if (locFilter !== 'all' && p.loc !== locFilter) return false;
     if (q) return p.name.toLowerCase().includes(q) || (p.sci||'').toLowerCase().includes(q) || (p.sub||'').toLowerCase().includes(q) || p.loc.toLowerCase().includes(q);
     return true;
@@ -606,7 +630,7 @@ function getFilteredPlants() {
 }
 
 function renderLocPills() {
-  const locs = ['all', ...new Set(PLANTS.filter(p => !p.archived_at && (tab === 'all' || p.type === tab)).map(p => p.loc))];
+  const locs = ['all', ...new Set(PLANTS.filter(p => !p.archived_at && tabMatches(p)).map(p => p.loc))];
   const bar = document.getElementById('loc-bar');
   const q = document.getElementById('search').value.trim();
   if (q) { bar.innerHTML = ''; return; }
@@ -615,8 +639,17 @@ function renderLocPills() {
   ).join('');
 }
 
+function renderAttentionBadge() {
+  const n = PLANTS.filter(needsAttention).length;
+  const badge = document.getElementById('attention-count');
+  if (!badge) return;
+  if (n > 0) { badge.textContent = n; badge.style.display = 'inline-block'; }
+  else       { badge.style.display = 'none'; }
+}
+
 function renderGrid() {
   renderLocPills();
+  renderAttentionBadge();
   const plants = getFilteredPlants();
   document.getElementById('count-label').textContent = `${plants.length} plant${plants.length !== 1 ? 's' : ''}`;
   const grid = document.getElementById('grid');
