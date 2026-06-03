@@ -64,9 +64,9 @@
   .tab.active { background: var(--cream); color: var(--green); }
 
   /* ── Loc pills ── */
-  #loc-bar { padding: 10px 12px 0; max-width: 1400px; margin: 0 auto; overflow-x: auto; white-space: nowrap; -webkit-overflow-scrolling: touch; }
-  #loc-bar::-webkit-scrollbar { display: none; }
-  .loc-pill { display: inline-block; margin-right: 6px; padding: 4px 12px; border-radius: 16px; border: 1.5px solid var(--border); background: var(--cream); color: var(--muted); font-size: 11px; font-weight: 700; cursor: pointer; transition: all .12s; font-family: inherit; white-space: nowrap; }
+  #loc-bar { padding: 10px 12px 0; max-width: 1400px; margin: 0 auto; display: flex; flex-wrap: wrap; gap: 6px; }
+  #loc-bar:empty { padding: 0; }
+  .loc-pill { padding: 4px 12px; border-radius: 16px; border: 1.5px solid var(--border); background: var(--cream); color: var(--muted); font-size: 11px; font-weight: 700; cursor: pointer; transition: all .12s; font-family: inherit; white-space: nowrap; }
   .loc-pill.active { background: var(--green); color: white; border-color: var(--green); }
 
   /* ── Grid ── */
