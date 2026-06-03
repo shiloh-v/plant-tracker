@@ -66,7 +66,7 @@
 
   /* ── Overlay + Modal ── */
   #overlay { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 100; display: flex; align-items: flex-end; justify-content: center; }
-  #overlay.hidden { display: none; }
+  #overlay.hidden, #form-overlay.hidden { display: none !important; }
   #modal { background: var(--cream); width: 100%; max-width: 500px; max-height: 92vh; overflow-y: auto; border-radius: 18px 18px 0 0; padding: 0 18px 60px; -webkit-overflow-scrolling: touch; }
   .modal-handle { width: 36px; height: 4px; background: var(--border); border-radius: 2px; margin: 12px auto 8px; }
   .modal-title-row { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 14px; }
@@ -135,6 +135,7 @@
       <h1>🌿 Shiloh's Plants</h1>
       <div style="display:flex;align-items:center;gap:8px">
         <span id="photo-count"></span>
+        <button id="add-plant-btn" title="Add a new plant" style="background:var(--cream);color:var(--green);border:none;border-radius:16px;font-size:13px;font-weight:700;padding:4px 11px;cursor:pointer;font-family:inherit;white-space:nowrap">+ Add</button>
         <button id="export-btn" style="background:rgba(255,255,255,.2);border:none;border-radius:16px;color:white;font-size:11px;font-weight:700;padding:4px 10px;cursor:pointer;font-family:inherit;white-space:nowrap">⬇ Export</button>
       </div>
     </div>
@@ -193,7 +194,83 @@
       <button class="btn btn-primary" id="save-btn">Save changes</button>
     </div>
     <button class="btn-edit" id="edit-btn">✏️ Edit status &amp; notes</button>
+    <div style="display:flex;gap:8px;margin-top:8px">
+      <button class="btn-edit" id="edit-details-btn" style="flex:1">✎ Edit details</button>
+      <button class="btn-edit" id="archive-btn" style="flex:1;border-color:#fca5a5;color:var(--danger-fg)">🗄 Archive</button>
+    </div>
     <div class="modal-updated" id="modal-updated"></div>
+  </div>
+</div>
+
+<!-- ── Add / Edit plant form modal ── -->
+<div id="form-overlay" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:120;display:flex;align-items:flex-end;justify-content:center">
+  <div id="form-modal" style="background:var(--cream);width:100%;max-width:500px;max-height:92vh;overflow-y:auto;border-radius:18px 18px 0 0;padding:0 18px 60px;-webkit-overflow-scrolling:touch">
+    <div class="modal-handle"></div>
+    <div class="modal-title-row">
+      <div class="modal-name" id="form-title">Add plant</div>
+      <button id="form-close" style="background:#f0ebe0;border:none;border-radius:50%;width:30px;height:30px;font-size:18px;cursor:pointer;color:var(--muted);font-family:inherit">×</button>
+    </div>
+
+    <div class="field-wrap">
+      <div class="field-label">Plant ID</div>
+      <input type="text" id="f-id" style="width:100%;padding:9px 11px;border-radius:10px;border:1.5px solid var(--border);font-size:13px;font-family:inherit;outline:none;background:white" placeholder="e.g. i38 or o72">
+      <div style="font-size:10px;color:var(--muted);margin-top:4px">Auto-generated. Override only if you have a reason.</div>
+    </div>
+
+    <div class="field-wrap">
+      <div class="field-label">Type *</div>
+      <div style="display:flex;gap:8px">
+        <label style="flex:1;display:flex;align-items:center;justify-content:center;padding:9px;border:1.5px solid var(--border);border-radius:10px;cursor:pointer;font-size:13px;font-weight:600">
+          <input type="radio" name="f-type" value="indoor" style="margin-right:6px"> Indoor
+        </label>
+        <label style="flex:1;display:flex;align-items:center;justify-content:center;padding:9px;border:1.5px solid var(--border);border-radius:10px;cursor:pointer;font-size:13px;font-weight:600">
+          <input type="radio" name="f-type" value="outdoor" style="margin-right:6px"> Outdoor
+        </label>
+      </div>
+    </div>
+
+    <div class="field-wrap">
+      <div class="field-label">Name *</div>
+      <input type="text" id="f-name" style="width:100%;padding:9px 11px;border-radius:10px;border:1.5px solid var(--border);font-size:13px;font-family:inherit;outline:none;background:white" placeholder="e.g. Monstera">
+    </div>
+
+    <div class="field-wrap">
+      <div class="field-label">Variety / subname</div>
+      <input type="text" id="f-sub" style="width:100%;padding:9px 11px;border-radius:10px;border:1.5px solid var(--border);font-size:13px;font-family:inherit;outline:none;background:white" placeholder="e.g. Albo Variegata">
+    </div>
+
+    <div class="field-wrap">
+      <div class="field-label">Scientific name</div>
+      <input type="text" id="f-sci" style="width:100%;padding:9px 11px;border-radius:10px;border:1.5px solid var(--border);font-size:13px;font-family:inherit;outline:none;background:white" placeholder="e.g. Monstera deliciosa">
+    </div>
+
+    <div class="field-wrap">
+      <div class="field-label">Location *</div>
+      <input type="text" id="f-loc" list="f-loc-options" style="width:100%;padding:9px 11px;border-radius:10px;border:1.5px solid var(--border);font-size:13px;font-family:inherit;outline:none;background:white" placeholder="e.g. Family Room">
+      <datalist id="f-loc-options"></datalist>
+    </div>
+
+    <div class="field-wrap">
+      <div class="field-label">Container / pot</div>
+      <input type="text" id="f-pot" style="width:100%;padding:9px 11px;border-radius:10px;border:1.5px solid var(--border);font-size:13px;font-family:inherit;outline:none;background:white" placeholder="e.g. White ceramic 6-inch">
+    </div>
+
+    <div class="field-wrap">
+      <label style="display:flex;align-items:center;gap:8px;padding:9px 11px;background:var(--danger-bg);border-radius:10px;color:var(--danger-fg);font-size:13px;font-weight:700;cursor:pointer">
+        <input type="checkbox" id="f-toxic">
+        ☠ Toxic to dogs
+      </label>
+    </div>
+
+    <div class="field-wrap" id="f-status-wrap">
+      <div class="field-label">Initial status</div>
+      <textarea id="f-status" rows="2" style="width:100%;padding:9px 11px;border-radius:10px;border:1.5px solid var(--border);font-size:13px;font-family:inherit;outline:none;background:white;resize:vertical" placeholder="e.g. Newly acquired — establishing"></textarea>
+    </div>
+
+    <div class="btn-row" style="margin-top:16px">
+      <button class="btn btn-outline" id="form-cancel">Cancel</button>
+      <button class="btn btn-primary" id="form-save">Save</button>
+    </div>
   </div>
 </div>
 
@@ -211,125 +288,20 @@ const SUPABASE_KEY = 'sb_publishable_Qd7TJXvaLerPAPayVJWxtg_hzqVJni7';
 const BUCKET       = 'plant-photos';
 // ═══════════════════════════════════════════════════════════════════════════
 
-const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+// ── Supabase client — rebuilt when passphrase changes so writes carry x-plant-key
+let plantKey = localStorage.getItem('plantKey') || '';
+let sb;
+function makeClient() {
+  sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+    global: { headers: plantKey ? { 'x-plant-key': plantKey } : {} }
+  });
+}
+makeClient();
 
-// ── Plant data ──────────────────────────────────────────────────────────────
-const PLANTS = [
-  // ── INDOOR ────────────────────────────────────────────────────────────────
-  // Family Room
-  {id:'i01',name:'African Violet',sub:'Purple Bicolor',sci:'Saintpaulia ionantha',type:'indoor',loc:'Family Room',pot:'Black hexagonal ceramic',status:'Healthy — full rosette, recovering from deadheading',toxic:false},
-  {id:'i02',name:'African Violet',sub:"Addi's (Pink/White/Purple)",sci:'Saintpaulia ionantha',type:'indoor',loc:'Family Room',pot:'White bowl pot',status:'Healthy — full foliage, center rebuilding',toxic:false},
-  
-  {id:'i04',name:'Aloe Vera',sci:'Aloe barbadensis miller',type:'indoor',loc:'Family Room',pot:'Large weathered gray ceramic (floor)',status:'Healthy — repotted May 26, upright leaves, good color',toxic:false},
-  {id:'i05',name:'Fittonia',sci:'Fittonia albivenis',type:'indoor',loc:'Family Room',pot:'Green ceramic (plant stand)',status:'Healthy — stunning white veining, thriving on stand',toxic:false},
-  {id:'i06',name:'Bronze Venus Maidenhair Fern',sci:'Adiantum hispidulum',type:'indoor',loc:'Family Room',pot:'White/cream speckled striped ceramic (plant stand)',status:'Healthy — on plant stand with grow light',toxic:false},
-  {id:'i07',name:'Succulent Combo',sub:'Finger succulent + Haworthiopsis + Euphorbia anoplia',sci:'Curio sp. / Haworthiopsis sp. / Euphorbia anoplia',type:'indoor',loc:'Family Room',pot:'White speckled scalloped ceramic bowl with metal liner',status:'Establishing — three-plant combo on plant stand',toxic:true},
-  {id:'i09',name:'Jade Plant',sci:'Crassula ovata',type:'indoor',loc:'Family Room',pot:'Dark gray/charcoal ceramic with saucer (plant stand)',status:'Healthy — firm, plump leaves, good color',toxic:false},
-  {id:'i13',name:'String of Coins',sci:'Peperomia rotundifolia',type:'indoor',loc:'Family Room',pot:'White cat-face ceramic (green drain insert)',status:'Healthy — dense, trailing nicely on windowsill',toxic:false},
-  {id:'i14',name:'Lithops',sub:'Living Stones',sci:'Lithops sp.',type:'indoor',loc:'Family Room',pot:'Black cat-face ceramic (terracotta insert)',status:'⚠ Molting in progress — do NOT water, check June 1',toxic:true},
-  {id:'i16',name:'Echeveria',sub:'best-guess ID — multi-headed blue-grey rosette',sci:'Echeveria sp.',type:'indoor',loc:'Family Room',pot:'White spider pot (windowsill)',status:'⚠ Etiolation improving — moved to windowsill, monitor',toxic:false},
-  {id:'i21',name:'Red Prayer Plant',sci:'Maranta leuconeura var. erythroneura',type:'indoor',loc:'Family Room',pot:'Oversized white ceramic bowl',status:'⭐ Thriving — vivid herringbone, new leaf unfurling',toxic:false},
-  {id:'i22',name:'Moses in the Cradle',sci:'Tradescantia spathacea',type:'indoor',loc:'Family Room',pot:'Blue ribbed ceramic with saucer (plant stand)',status:'⚠ Persistent tip browning — increase humidity',toxic:true},
-  {id:'i26',name:'String of Bananas',sci:'Curio radicans',type:'indoor',loc:'Family Room',pot:'Dark gray/charcoal round pot (plant stand)',status:'Healthy — trailing well, plump leaves',toxic:false},
-  {id:'i27',name:'Tuberous Begonia',sub:'Nonstop Joy Rose Picotee',sci:'Begonia × tuberhybrida',type:'indoor',loc:'Family Room',pot:'Brown clay terracotta pot (plant stand)',status:'⚠ Struggling — transplanted to brown clay terracotta pot; wilting stems, may not recover. Monitor closely. May 30.',toxic:true},
-  {id:'i28',name:'Philodendron Brasil',sci:'Philodendron hederaceum var. oxycardium',type:'indoor',loc:'Family Room',pot:'Dark blue/black patterned ceramic with saucer (plant stand)',status:'Healthy — active growth, new leaf unfurling',toxic:true},
-  {id:'i29',name:'Ficus Bonsai',sub:'Chinese Banyan',sci:'Ficus microcarpa',type:'indoor',loc:'Family Room',pot:'Burgundy rectangular ceramic bonsai pot with saucer (plant stand)',status:'Healthy — full canopy, volunteer seedling in substrate',toxic:true},
-  {id:'i30',name:'Monstera',sci:'Monstera deliciosa',type:'indoor',loc:'Family Room',pot:'Black 3-gal decorative plastic pot',status:'⭐ Thriving — huge leaves, new leaf unfurling',toxic:true},
-  {id:'i31',name:'Elephant Bush',sci:'Portulacaria afra',type:'indoor',loc:'Family Room',pot:'Orange plastic pot (decorative replacement TBD)',status:'Healthy — very full and bushy',toxic:false},
-  {id:'i32',name:'Thimble Cactus',sci:'Mammillaria prolifera',type:'indoor',loc:'Family Room',pot:'Terracotta bowl (plant stand)',status:'⭐ Thriving — massive clustering colony',toxic:false},
-  {id:'i33',name:'String of Hearts',sci:'Ceropegia woodii',type:'indoor',loc:'Family Room',pot:'Black spider pot (windowsill)',status:'⭐ Thriving — long trailing vines, healthy',toxic:false},
-  {id:'i34',name:'Aloe Vera Pup',sub:'Medium pup from i04',sci:'Aloe barbadensis miller',type:'indoor',loc:'Family Room',pot:'White pot (plant stand)',status:'Newly separated — establishing',toxic:false},
-  {id:'i35',name:'Aloe Vera Pup',sub:'Small pup from i04',sci:'Aloe barbadensis miller',type:'indoor',loc:'Family Room',pot:'Small gray 4.5" pot (plant stand)',status:'Newly separated — establishing',toxic:false},
-  {id:'i36',name:'Caladium',sub:"Sizzle (USPP#26591)",sci:'Caladium bicolor',type:'indoor',loc:'Family Room',pot:'Dark gray/black octagonal ceramic (plant stand)',status:'⭐ Thriving — spectacular pink/green leaves, keep moist',toxic:true},
-  // The Archives
-  {id:'i10',name:'Spider Plant',sci:'Chlorophytum comosum',type:'indoor',loc:'The Archives',pot:'Glossy black ceramic cauldron bowl',status:'⭐ Thriving — flowering runner, spiderette developing',toxic:false},
-  {id:'i11',name:'Pothos',sub:'Propagated Cutting',sci:'Epipremnum aureum',type:'indoor',loc:'The Archives',pot:'White/cream and burgundy glazed ceramic bowl with saucer',status:'Healthy — establishing well, good window light',toxic:false},
-  {id:'i24',name:"Rabbit's Foot Prayer Plant",sub:"Hunter's plant",sci:'Maranta leuconeura var. kerchoveana',type:'indoor',loc:'The Archives',pot:'Black cauldron self-watering pot',status:'⚠ Recovering — moved to bright window, monitor weekly',toxic:false},
-  // Sunroom
-  {id:'i17',name:'Succulent Rosette',sub:'best-guess: Pachyveria/Graptoveria',sci:'Pachyveria sp. or Graptoveria sp.',type:'indoor',loc:'Sunroom',pot:'Pink textured ceramic cylinder',status:'Healthy — plump, tight, thriving in sunroom',toxic:false},
-  {id:'i18',name:'Stacked Succulent',sub:'best-guess: Crassula perforata',sci:'Crassula perforata or similar',type:'indoor',loc:'Sunroom',pot:'White cat-face ceramic',status:'Healthy — compact, multiple heads, thriving',toxic:false},
-  {id:'i25',name:'Echeveria',sci:'Echeveria sp.',type:'indoor',loc:'Family Room',pot:'White ceramic cylinder with chevron base (plant stand)',status:'⭐ Thriving — enormous flat rosette, stunning blue-gray with pink/red edge tips. Repotted and moved from Sunroom to Family Room stand May 30.',toxic:false},
-  // Jack's Office
-  {id:'i20',name:'Pothos',sub:"Parent Plant (Jack's Office)",sci:'Epipremnum aureum',type:'indoor',loc:"Jack's Office",pot:'White ribbed self-watering pot',status:'⚠ Pale from low light — consider grow light for shelf',toxic:false},
+// ── Plant data — populated by loadData() from the plants table
+let PLANTS = [];
 
-  // ── OUTDOOR ───────────────────────────────────────────────────────────────
-  // Strawberry Planter (Cedarcraft self-watering, 45.7×19.5×7.6", 6-gal reservoir)
-  {id:'o47',name:'Strawberry',sub:'Pretty in Pink ×2',sci:'Fragaria × ananassa',type:'outdoor',loc:'Strawberry Planter — Elevated',pot:'#1 — Cedarcraft self-watering',status:'⭐ Thriving — full, lush, soft pink blooms, well established',toxic:false},
-  {id:'o48',name:'Strawberry',sub:'Chandler ×3',sci:'Fragaria × ananassa',type:'outdoor',loc:'Strawberry Planter — Elevated',pot:'#1 — Cedarcraft self-watering',status:'⭐ Thriving — all three healthy, white blooms, establishing well',toxic:false},
-  {id:'o49',name:'Strawberry',sub:'Delizz ×2 (Everbearing)',sci:'Fragaria × ananassa',type:'outdoor',loc:'Strawberry Planter — Elevated',pot:'#1 — Cedarcraft self-watering',status:'⭐ Thriving — large lush foliage, fruit forming',toxic:false},
-  {id:'o58',name:'Strawberry',sub:'Berries Galore New Rose (Everbearing)',sci:'Fragaria × ananassa',type:'outdoor',loc:'Strawberry Planter — Elevated',pot:'#1 — Cedarcraft self-watering',status:'⭐ Thriving — heavy pink blooms, ripe/near-ripe fruit visible. Star performer',toxic:false},
-  {id:'o51',name:'Strawberry',sub:'Tristan',sci:'Fragaria × ananassa',type:'outdoor',loc:'Strawberry Planter — Elevated',pot:'#1 — Cedarcraft self-watering',status:'⭐ Thriving — deep pink blooms, well established',toxic:false},
-  // Herb Planter (Best Choice Products cedar, ~72×23×8.75", NOT self-watering)
-  {id:'o01',name:'Upright Rosemary',sci:'Salvia rosmarinus',type:'outdoor',loc:'Herb Planter — Elevated',pot:'#41 — dry end',status:'Healthy — established, light harvesting OK',toxic:false},
-  {id:'o02',name:'English Lavender',sci:'Lavandula angustifolia',type:'outdoor',loc:'Herb Planter — Elevated',pot:'#41 — dry end',status:'Healthy — full silver-green mound, no blooms yet but strong',toxic:false},
-  {id:'o03',name:'Berggarten Sage',sci:"Salvia officinalis 'Berggarten'",type:'outdoor',loc:'Herb Planter — Elevated',pot:'#41 — dry end',status:'⭐ Thriving — massive full mound, harvest up to 1/3 regularly',toxic:false},
-  {id:'o04',name:'Thyme',sci:'Thymus vulgaris',type:'outdoor',loc:'Herb Planter — Elevated',pot:'#41 — dry end',status:'Healthy — spreading, flowering (peak flavor). Harvestable',toxic:false},
-  {id:'o05',name:'Flat-leaf Parsley',sub:'×1',sci:'Petroselinum crispum var. neapolitanum',type:'outdoor',loc:'Herb Planter — Elevated',pot:'#41 — middle',status:'Healthy — tall and growing, harvest outer stems regularly',toxic:false},
-  {id:'o06',name:'Basil',sub:"Rutgers Devotion",sci:'Ocimum basilicum',type:'outdoor',loc:'Herb Planter — Elevated',pot:'#41 — middle',status:'Healthy — full, lush, no flowering yet. Harvestable',toxic:false},
-  {id:'o07',name:'Stevia',sci:'Stevia rebaudiana',type:'outdoor',loc:'Herb Planter — Elevated',pot:'#41 — middle',status:'⭐ Thriving — enormous and sprawling. Harvest stems anytime',toxic:false},
-  {id:'o54',name:'Sweet Basil',sci:'Ocimum basilicum',type:'outdoor',loc:'Herb Planter — Elevated',pot:'#41 — middle',status:'Healthy — bushy, good color',toxic:false},
-  {id:'o55',name:'Fernleaf Dill',sci:'Anethum graveolens',type:'outdoor',loc:'Herb Planter — Elevated',pot:'#41 — middle',status:'⭐ Thriving — gorgeous full feathery mound. Harvest fronds anytime',toxic:false},
-  {id:'o56',name:'Buttercrunch Lettuce',sub:'×2',sci:'Lactuca sativa',type:'outdoor',loc:'Herb Planter — Elevated',pot:'#41 — wet end, front row',status:'⚠ Harvest immediately — enormous heads, overdue, will bolt soon',toxic:false},
-  {id:'o57',name:'Spinach',sub:'Matador + seedlings',sci:'Spinacia oleracea',type:'outdoor',loc:'Herb Planter — Elevated',pot:'#41 — wet end, back row',status:'⚠ Bolting — harvest everything usable immediately. Matador seedlings emerging',toxic:false},
-  {id:'o64',name:'Lettuce',sub:'Grand Rapids (seedlings)',sci:'Lactuca sativa',type:'outdoor',loc:'Herb Planter — Elevated',pot:'#41 — wet end',status:'Germinating — tiny seedlings emerging, healthy true leaves',toxic:false},
-  // Mints
-  {id:'o08',name:'Spearmint',sci:'Mentha spicata',type:'outdoor',loc:'Mints — Dog-Free',pot:'#2 — 12" black plastic round',status:'Healthy — full and dense. Harvestable',toxic:false},
-  {id:'o09',name:'Peppermint',sci:'Mentha × piperita',type:'outdoor',loc:'Mints — Dog-Free',pot:'#3 — 12" black plastic round',status:'Healthy — lush and overflowing. Harvestable',toxic:false},
-  {id:'o10',name:'Apple Mint',sci:'Mentha suaveolens',type:'outdoor',loc:'Mints — Dog-Free',pot:'#4 — 12" black plastic round',status:'Healthy — full, slight yellowing on older leaves (normal). Harvestable',toxic:false},
-  {id:'o11',name:'Mojito Mint',sci:'Mentha × villosa',type:'outdoor',loc:'Mints — Dog-Free',pot:'#5 — 12" black plastic round',status:'Healthy — dense and spreading. Harvestable',toxic:false},
-  {id:'o12',name:'Strawberry Mint',sci:"Mentha spicata 'Strawberry'",type:'outdoor',loc:'Mints — Dog-Free',pot:'#6 — 12" black plastic round',status:'Healthy — full and green, no visible urine damage this check-in. Harvestable',toxic:false},
-  {id:'o13',name:'Orange Mint',sci:"Mentha × piperita 'Citrata'",type:'outdoor',loc:'Mints — Dog-Free',pot:'#7 — 12" black plastic round',status:'Healthy — full coverage. Harvestable',toxic:false},
-  // Veggies
-  {id:'o14',name:'Cherry Tomato',sub:'Supersweet 100',sci:'Solanum lycopersicum',type:'outdoor',loc:'Veggies — Dog-Free',pot:'#9 — 15" orange plastic round',status:'⭐ Thriving — explosive growth, towering above cage, multiple green tomatoes forming',toxic:false},
-  {id:'o15',name:'Cherry Tomato',sub:'Mexico Midget',sci:'Solanum lycopersicum',type:'outdoor',loc:'Veggies — Dog-Free',pot:'#10 — 15" orange plastic round',status:'⭐ Thriving — tall, vigorous, yellow blooms, green fruit developing',toxic:false},
-  {id:'o16',name:'Slicer Tomato',sub:'Big Boy',sci:'Solanum lycopersicum',type:'outdoor',loc:'Veggies — Dog-Free',pot:'#11 — 15" orange plastic round',status:'⚠ Mild leaf curl — monitor weekly for pests or stress',toxic:false},
-  {id:'o17',name:'Paste Tomato',sub:'La Roma',sci:'Solanum lycopersicum',type:'outdoor',loc:'Veggies — Dog-Free',pot:'#12 — 15" orange plastic round',status:'⚠ Severe leaf curl and distortion — priority concern, possible pest or virus',toxic:false},
-  {id:'o45',name:'Chili Pepper',sub:'Garden Salsa',sci:'Capsicum annuum',type:'outdoor',loc:'Veggies — Dog-Free',pot:'#18 — 10" orange plastic round',status:'⚠ THRIPS/BROAD MITE — puckered cupped foliage, treat immediately',toxic:false},
-  {id:'o46',name:'Chili Pepper',sub:'Jalapeño',sci:'Capsicum annuum',type:'outdoor',loc:'Veggies — Dog-Free',pot:'#19 — 10" orange plastic round',status:'Healthy — bushy, multiple flower buds, peppers forming',toxic:false},
-  {id:'o52',name:'Slicing Cucumber',sub:'with tag',sci:'Cucumis sativus',type:'outdoor',loc:'Veggies — Dog-Free',pot:'#42 — 14" Panterra pot',status:'Healthy — small but growing, establishing',toxic:false},
-  {id:'o53',name:'Slicing Cucumber',sub:'no tag',sci:'Cucumis sativus',type:'outdoor',loc:'Veggies — Dog-Free',pot:'#43 — 14" Panterra pot',status:'⚠ Possible powdery mildew on cotyledons — monitor closely',toxic:false},
-  // Culinary Herbs
-  {id:'o19',name:'Oregano',sub:'Italian (Survivor)',sci:'Origanum vulgare',type:'outdoor',loc:'Culinary Herbs — Dog-Free',pot:'#15 — sage-green ceramic 11"',status:'⚠ THRIPS — treat with Safer Brand insecticidal soap every 5-7 days x3 rounds',toxic:false},
-  {id:'o20',name:'Bay Laurel',sub:'Variegated Willow Leaf',sci:"Laurus nobilis 'Willow Leaf'",type:'outdoor',loc:'Culinary Herbs — Dog-Free',pot:'#8 — 17" black plastic round',status:'⭐ Thriving — massive, dark glossy leaves, very full',toxic:false},
-  {id:'o21',name:'Chives',sci:'Allium schoenoprasum',type:'outdoor',loc:'Culinary Herbs — Dog-Free',pot:'#16 — 13" terracotta round',status:'Healthy — sparse, regrowing from base. New shoots coming up',toxic:false},
-  {id:'o42',name:'Marjoram',sub:'Transplanted from cedar planter',sci:'Origanum majorana',type:'outdoor',loc:'Culinary Herbs — Dog-Free',pot:'#38 — 7" square plastic',status:'⚠ Borderline — tiny shoots, barely hanging on. Consider moving to elevated herb planter',toxic:false},
-  // Medicinal & Specialty
-  {id:'o18',name:'Lavender Intermedia',sci:'Lavandula × intermedia',type:'outdoor',loc:'Medicinal & Specialty — Dog-Free',pot:'#13 — 13" orange plastic square',status:'⭐ Recovering well — tall bloom spikes, full silver-green foliage',toxic:false},
-  {id:'o65',name:'Lavender Cuttings',sub:'From o18 Lavender Intermedia',sci:'Lavandula × intermedia',type:'outdoor',loc:'Medicinal & Specialty — Dog-Free',pot:'#39 — 8" round gray basalt',status:'⚠ Rooting attempt — sparse thin shoots visible. Outcome uncertain',toxic:false},
-  {id:'o23',name:'Bay Laurel',sub:'Sweet Leaf',sci:'Laurus nobilis',type:'outdoor',loc:'Medicinal & Specialty — Dog-Free',pot:'#20 — 16" weathered concrete bowl',status:'Healthy — small but establishing steadily',toxic:false},
-  {id:'o24',name:'Lemon Balm',sci:'Melissa officinalis',type:'outdoor',loc:'Medicinal & Specialty — Dog-Free',pot:'#21 — 14" white/cream concrete bowl',status:'Healthy — full, bushy, multiple crowns. Harvest regularly',toxic:false},
-  {id:'o25',name:'Yarrow',sci:'Achillea millefolium',type:'outdoor',loc:'Medicinal & Specialty — Dog-Free',pot:'#22 — 10" orange ceramic round',status:'⭐ Thriving — multiple flower heads forming, yellow/cream blooms opening',toxic:false},
-  {id:'o26',name:'Chamomile',sci:'Matricaria chamomilla',type:'outdoor',loc:'Medicinal & Specialty — Dog-Free',pot:'#23 — 11" sage-green ceramic bowl',status:'⭐ Thriving — fully blooming. Harvest open flowers, pinch regularly',toxic:false},
-  {id:'o27',name:'Santa Cruz Oregano',sub:'Ornamental',sci:"Origanum 'Santa Cruz'",type:'outdoor',loc:'Medicinal & Specialty — Dog-Free',pot:'Blue urn pot',status:'Healthy — sprawling nicely, ornamental trailing habit',toxic:false},
-  {id:'o28',name:'Rosemary Prostratus',sci:"Salvia rosmarinus 'Prostratus'",type:'outdoor',loc:'Medicinal & Specialty — Dog-Free',pot:'#25 — teal ceramic on iron stand',status:'Healthy — full, spreading well',toxic:false},
-  {id:'o30',name:'Calendula',sub:'Zeolights',sci:'Calendula officinalis',type:'outdoor',loc:'Medicinal & Specialty — Dog-Free',pot:'#34 — 22"×11" black rectangle #2',status:'⚠ Insufficient light — pale, floppy rosettes. Move to sunnier location',toxic:false},
-  {id:'o41',name:'Echinacea',sub:'Pale Purple Coneflower',sci:'Echinacea pallida',type:'outdoor',loc:'Medicinal & Specialty — Dog-Free',pot:'#37 — 11" round terracotta',status:'Healthy — strong strap-like foliage, blooms expected later summer',toxic:false},
-  // Ornamentals (includes former Dog Zone plants)
-  {id:'o29',name:'Pineapple Sage',sci:'Salvia elegans',type:'outdoor',loc:'Ornamentals — Dog-Free',pot:'#26 — 9" white/cream ceramic bowl',status:'⭐ Thriving — blooming with red tubular flowers, full and bushy',toxic:false},
-  {id:'o59',name:'Dusty Miller + Celosia + Portulaca',sub:'Silverdust / Magenta Plume / Happy Hour Coconut',sci:'Jacobaea maritima / Celosia argentea / Portulaca grandiflora',type:'outdoor',loc:'Ornamentals — Dog-Free',pot:'#27 — 10" blue plastic round',status:'Healthy — all three present, Dusty Miller full, Celosia plume emerging, Portulaca blooming',toxic:false},
-  {id:'o33',name:'Marigolds',sub:'Bananza Survivors + French Marigold Seeds',sci:'Tagetes erecta / patula',type:'outdoor',loc:'Ornamentals — Dog-Free',pot:'#31 — 34"×7" black rectangle #2',status:'⚠ Sparse — mostly bare, seeds not establishing well. Consider replanting',toxic:false},
-  {id:'o34',name:'Violas',sub:'Purple / Red-Orange / Blue',sci:'Viola sp.',type:'outdoor',loc:'Ornamentals — Dog-Free',pot:'#32 — 34"×7" black rectangle #3',status:'Healthy — colorful violas blooming, foliage filling in',toxic:false},
-  // Berries
-  {id:'o60',name:'Blackberry',sub:'Taste of Heaven',sci:"Rubus 'Ponca'",type:'outdoor',loc:'Berries — Dog-Free',pot:'In-ground along fence line',status:'Healthy — bushy spreading habit, white flower visible, establishing in-ground',toxic:false},
-  {id:'o61',name:'Blackberry',sub:'Von',sci:"Rubus 'Von'",type:'outdoor',loc:'Berries — Dog-Free',pot:'In-ground along fence line',status:'Healthy — tall vigorous upright cane. Tie to fence for wind support',toxic:false},
-  {id:'o62',name:'Blueberry',sub:'Tifblue',sci:"Vaccinium corymbosum 'Tifblue'",type:'outdoor',loc:'Berries — Dog-Free',pot:'25-gal VIVOSUN fabric grow bag',status:'Healthy — establishing, green berry cluster visible',toxic:false},
-  {id:'o63',name:'Blueberry',sub:'Powderblue Rabbiteye',sci:"Vaccinium ashei 'Powderblue'",type:'outdoor',loc:'Berries — Dog-Free',pot:'25-gal VIVOSUN fabric grow bag',status:'Healthy — establishing, small green berries forming',toxic:false},
-  // Front Porch
-  {id:'o32',name:'Hummingbird Mix + Pollinator Flower Blend',sub:'Mixed Seeds',sci:'Mixed wildflower species',type:'outdoor',loc:'Front Porch',pot:'#30 — 34"×7" black rectangle',status:'Germinating — sparse seedlings on left end, right side still bare',toxic:false},
-  {id:'o39',name:'Foxglove',sub:'Arctic Fox Lemon Cream (Survivor)',sci:"Digitalis hybrida 'Balroxleam'",type:'outdoor',loc:'Foxgloves — Front Porch Only',pot:'#14 — 9" black plastic pot',status:'☠ TOXIC TO DOGS — bloom spike with yellow buds. Front porch only',toxic:true},
-  {id:'o40',name:'Foxglove',sub:'Camelot Rose',sci:"Digitalis purpurea 'Camelot Rose'",type:'outdoor',loc:'Foxgloves — Front Porch Only',pot:'#28 — 8" ceramic',status:'☠ TOXIC TO DOGS — large rosette, bloom spike imminent. Front porch only',toxic:true},
-  // Citrus
-  {id:'o37',name:'Persian Lime Tree',sci:'Citrus × latifolia',type:'outdoor',loc:'Citrus Trees',pot:'#35 — large galvanized/wood planter',status:'Healthy — lush glossy foliage, vigorous new growth. Continue citrus fertilizer',toxic:false},
-  {id:'o38',name:'Meyer Lemon Tree',sci:'Citrus × meyeri',type:'outdoor',loc:'Citrus Trees',pot:'#36 — large galvanized/wood planter #2',status:'⭐ Thriving — white blooms, pink buds, multiple green fruit setting',toxic:false},
-  // New May 30
-  {id:'o66',name:'Mexican Heather + Mixed Petunia + Mixed Celosia',sub:'Cuphea hyssopifolia / Petunia sp. / Celosia sp.',sci:'Cuphea hyssopifolia / Petunia sp. / Celosia sp.',type:'outdoor',loc:'Ornamentals — Dog-Free',pot:'#45 — terracotta bowl',status:'Newly planted — all three establishing. Mexican Heather blooming purple. May 30.',toxic:false},
-  {id:'o67',name:'Paste Tomato',sub:'La Roma III Red',sci:'Solanum lycopersicum',type:'outdoor',loc:'Veggies — Dog-Free',pot:'#46 — 12" black plastic round',status:'Newly planted — tall leggy transplant. May 30.',toxic:false},
-  {id:'o68',name:'Paste Tomato',sub:'San Marzano',sci:'Solanum lycopersicum',type:'outdoor',loc:'Veggies — Dog-Free',pot:'#47 — 12" black plastic round',status:'Newly planted — establishing. May 30.',toxic:false},
-  {id:'o69',name:'Cilantro',sub:'×2 plants',sci:'Coriandrum sativum',type:'outdoor',loc:'Culinary Herbs — Dog-Free',pot:'#48 — 2.5 gal black plastic round',status:'⚠ Newly transplanted — wilty transplant stress. Keep moist and shaded briefly. May 30.',toxic:false},
-  {id:'o70',name:'Pepper + Oregano + Marigold Combo',sub:'Garden Salsa + Tabasco + Hot & Spicy Oregano + Marigold',sci:"Capsicum annuum 'Garden Salsa' / Capsicum frutescens 'Tabasco' / Origanum vulgare 'Hot & Spicy' / Tagetes sp.",type:'outdoor',loc:'Veggies — Dog-Free',pot:'#49 — gray textured round pot',status:'Newly planted combo — Garden Salsa fruiting, Tabasco present, Hot & Spicy Oregano trailing, Marigold blooming yellow. May 30.',toxic:false},
-  {id:'o71',name:'Pepper + Oregano + Marjoram + Marigold Combo',sub:'Anaheim + Italian Oregano + Marjoram + Marigold',sci:"Capsicum annuum 'Anaheim' / Origanum vulgare / Origanum majorana / Tagetes sp.",type:'outdoor',loc:'Veggies — Dog-Free',pot:'#50 — black/bronze ribbed round pot',status:'Newly planted combo — Anaheim pepper established, Italian Oregano blooming white, Marjoram present, Marigold blooming yellow. May 30.',toxic:false},
-  {id:'i37',name:'Raven ZZ Plant',sub:'Raven',sci:"Zamioculcas zamiifolia 'Raven'",type:'indoor',loc:'Family Room',pot:'White round ceramic self-watering (plant stand)',status:'Newly acquired — establishing. Dark near-black foliage, new growth emerges green then darkens. May 30.',toxic:true},
-];
+// (inline plant list removed — now lives in Supabase. See migrations/001_plants_table.sql)
 
 // ── State ───────────────────────────────────────────────────────────────────
 let overrides = {};      // id -> {status, notes, photo_ts, updated_at}
@@ -339,6 +311,60 @@ let selectedId = null;
 let tab = 'all';
 let locFilter = 'all';
 let editMode = false;
+
+// ── Passphrase prompt + write retry ─────────────────────────────────────────
+// Modal that asks for the passphrase; persists to localStorage and rebuilds
+// the Supabase client so writes include the x-plant-key header.
+function promptPassphrase(reason) {
+  return new Promise(resolve => {
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:200;display:flex;align-items:center;justify-content:center;padding:20px;';
+    overlay.innerHTML =
+      '<div style="background:var(--cream);border-radius:14px;padding:20px;max-width:340px;width:100%;font-family:inherit">' +
+        '<div style="font-family:\'Fraunces\',serif;font-size:18px;font-weight:700;margin-bottom:6px">Passphrase required</div>' +
+        '<div style="font-size:13px;color:var(--muted);margin-bottom:14px">' + (reason || 'Enter your passphrase to write to the database.') + '</div>' +
+        '<input type="password" id="pp-input" placeholder="Passphrase" style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:10px;font-size:14px;font-family:inherit;box-sizing:border-box;margin-bottom:14px">' +
+        '<div style="display:flex;gap:8px">' +
+          '<button id="pp-cancel" style="flex:1;padding:10px;border-radius:10px;border:1.5px solid var(--border);background:white;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit">Cancel</button>' +
+          '<button id="pp-ok" style="flex:1;padding:10px;border-radius:10px;border:none;background:var(--green);color:white;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit">Save</button>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(overlay);
+    const input = overlay.querySelector('#pp-input');
+    input.focus();
+    const done = ok => { document.body.removeChild(overlay); resolve(ok); };
+    overlay.querySelector('#pp-cancel').onclick = () => done(false);
+    overlay.querySelector('#pp-ok').onclick = () => {
+      const v = input.value;
+      if (!v) { input.focus(); return; }
+      plantKey = v;
+      localStorage.setItem('plantKey', v);
+      makeClient();
+      done(true);
+    };
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter') overlay.querySelector('#pp-ok').click();
+      if (e.key === 'Escape') done(false);
+    });
+  });
+}
+
+// Runs a Supabase write. If it fails with an RLS/auth error, prompts for the
+// passphrase and retries once. `label` shows in the prompt for context.
+async function withKey(label, fn) {
+  let res = await fn();
+  const e = res && res.error;
+  const looksAuth = e && (
+    /row-level security|unauthorized|jwt|policy|forbidden|new row violates/i.test(e.message || '') ||
+    e.statusCode === '403' || e.statusCode === 403 || e.code === '42501'
+  );
+  if (looksAuth) {
+    const ok = await promptPassphrase('Passphrase needed to ' + label + '.');
+    if (!ok) return res;
+    res = await fn();
+  }
+  return res;
+}
 
 // ── Status theming ──────────────────────────────────────────────────────────
 function statusTheme(s) {
@@ -393,13 +419,16 @@ async function loadData() {
   loadingEl.style.display = 'block';
 
   try {
-  const [overridesRes, bucketRes] = await Promise.all([
+  const [plantsRes, overridesRes, bucketRes] = await Promise.all([
+    sb.from('plants').select('*').order('sort_order', { nullsFirst: false }).order('id'),
     sb.from('plant_overrides').select('*'),
     sb.storage.from(BUCKET).list('', { limit: 1000 })
   ]);
+  if (plantsRes.error)    throw plantsRes.error;
   if (overridesRes.error) throw overridesRes.error;
-  if (bucketRes.error) throw bucketRes.error;
+  if (bucketRes.error)    throw bucketRes.error;
 
+  PLANTS = plantsRes.data || [];
   overrides = {};
   photoURLs = {};
   photoHistory = {};
@@ -486,15 +515,16 @@ function updatePhotoCount() {
 function getFilteredPlants() {
   const q = document.getElementById('search').value.trim().toLowerCase();
   return PLANTS.filter(p => {
+    if (p.archived_at) return false;
     if (tab !== 'all' && p.type !== tab) return false;
     if (locFilter !== 'all' && p.loc !== locFilter) return false;
-    if (q) return p.name.toLowerCase().includes(q) || p.sci.toLowerCase().includes(q) || (p.sub||'').toLowerCase().includes(q) || p.loc.toLowerCase().includes(q);
+    if (q) return p.name.toLowerCase().includes(q) || (p.sci||'').toLowerCase().includes(q) || (p.sub||'').toLowerCase().includes(q) || p.loc.toLowerCase().includes(q);
     return true;
   });
 }
 
 function renderLocPills() {
-  const locs = ['all', ...new Set(PLANTS.filter(p => tab === 'all' || p.type === tab).map(p => p.loc))];
+  const locs = ['all', ...new Set(PLANTS.filter(p => !p.archived_at && (tab === 'all' || p.type === tab)).map(p => p.loc))];
   const bar = document.getElementById('loc-bar');
   const q = document.getElementById('search').value.trim();
   if (q) { bar.innerHTML = ''; return; }
@@ -616,7 +646,9 @@ async function saveOverride() {
   const existing = overrides[selectedId] || {};
   const row = { id: selectedId, status, notes, photo_ts: existing.photo_ts || null, updated_at: new Date().toISOString() };
 
-  const { error } = await sb.from('plant_overrides').upsert(row);
+  const { error } = await withKey('save status & notes', () =>
+    sb.from('plant_overrides').upsert(row)
+  );
   if (!error) {
     overrides[selectedId] = row;
     // Refresh display
@@ -631,6 +663,8 @@ async function saveOverride() {
     document.getElementById('modal-updated').textContent = `Last updated ${new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})}`;
     setEditMode(false);
     renderGrid();
+  } else {
+    alert('Save failed: ' + error.message);
   }
   btn.innerHTML = 'Save changes';
   btn.disabled = false;
@@ -648,7 +682,9 @@ async function uploadPhoto(file) {
   // Write to {id}/{timestamp}.jpg so each upload is a new file — history is preserved
   const filename = `${ts}.jpg`;
   const path = `${selectedId}/${filename}`;
-  const { error } = await sb.storage.from(BUCKET).upload(path, blob, { contentType: 'image/jpeg', upsert: false });
+  const { error } = await withKey('upload photo', () =>
+    sb.storage.from(BUCKET).upload(path, blob, { contentType: 'image/jpeg', upsert: false })
+  );
 
   if (!error) {
     const url = `${SUPABASE_URL}/storage/v1/object/public/${BUCKET}/${path}?t=${ts}`;
@@ -662,7 +698,7 @@ async function uploadPhoto(file) {
     // Save timestamp to DB
     const existing = overrides[selectedId] || { id: selectedId };
     const row = { ...existing, photo_ts: ts, updated_at: new Date().toISOString() };
-    await sb.from('plant_overrides').upsert(row);
+    await withKey('record photo timestamp', () => sb.from('plant_overrides').upsert(row));
     overrides[selectedId] = row;
 
     // Refresh photo and history strip in modal
@@ -773,6 +809,155 @@ function exportAll() {
 }
 
 document.getElementById('export-btn').addEventListener('click', exportAll);
+
+// ── Add / Edit / Archive plant ──────────────────────────────────────────────
+// Suggests next id like 'i38' / 'o72' based on existing plants of that type.
+function nextId(type) {
+  const prefix = type === 'indoor' ? 'i' : 'o';
+  const max = PLANTS
+    .map(p => p.id)
+    .filter(id => typeof id === 'string' && id.startsWith(prefix))
+    .map(id => parseInt(id.slice(1), 10))
+    .filter(n => Number.isFinite(n))
+    .reduce((a, b) => Math.max(a, b), 0);
+  return prefix + String(max + 1).padStart(2, '0');
+}
+
+let formMode = 'add';        // 'add' | 'edit'
+let formEditingId = null;    // id of plant being edited
+
+function openPlantForm(mode, plant) {
+  formMode = mode;
+  formEditingId = plant ? plant.id : null;
+  document.getElementById('form-title').textContent = mode === 'edit' ? 'Edit plant details' : 'Add plant';
+
+  // Populate location datalist from existing (non-archived) plants
+  const locs = [...new Set(PLANTS.filter(p => !p.archived_at).map(p => p.loc))].sort();
+  document.getElementById('f-loc-options').innerHTML =
+    locs.map(l => '<option value="' + l.replace(/"/g, '&quot;') + '">').join('');
+
+  // Field defaults
+  const t = plant?.type || 'indoor';
+  document.querySelectorAll('input[name="f-type"]').forEach(r => { r.checked = (r.value === t); });
+  document.getElementById('f-id').value     = plant?.id   || nextId(t);
+  document.getElementById('f-id').disabled  = (mode === 'edit');
+  document.getElementById('f-name').value   = plant?.name || '';
+  document.getElementById('f-sub').value    = plant?.sub  || '';
+  document.getElementById('f-sci').value    = plant?.sci  || '';
+  document.getElementById('f-loc').value    = plant?.loc  || '';
+  document.getElementById('f-pot').value    = plant?.pot  || '';
+  document.getElementById('f-toxic').checked = !!plant?.toxic;
+  document.getElementById('f-status').value = plant?.status || '';
+
+  // Initial-status field only matters for new plants; hide on edit
+  document.getElementById('f-status-wrap').style.display = (mode === 'edit') ? 'none' : 'block';
+
+  document.getElementById('form-overlay').classList.remove('hidden');
+  document.body.style.overflow = 'hidden';
+}
+
+function closePlantForm() {
+  document.getElementById('form-overlay').classList.add('hidden');
+  document.body.style.overflow = '';
+}
+
+// Re-suggest the id when user toggles type, but only in add mode and only
+// if the field still holds an auto-generated id (don't clobber user edits).
+document.querySelectorAll('input[name="f-type"]').forEach(r => {
+  r.addEventListener('change', () => {
+    if (formMode !== 'add') return;
+    const idField = document.getElementById('f-id');
+    if (/^[io]\d+$/.test(idField.value)) idField.value = nextId(r.value);
+  });
+});
+
+async function savePlant() {
+  const btn = document.getElementById('form-save');
+  const id    = document.getElementById('f-id').value.trim();
+  const name  = document.getElementById('f-name').value.trim();
+  const sub   = document.getElementById('f-sub').value.trim() || null;
+  const sci   = document.getElementById('f-sci').value.trim() || null;
+  const type  = (document.querySelector('input[name="f-type"]:checked') || {}).value;
+  const loc   = document.getElementById('f-loc').value.trim();
+  const pot   = document.getElementById('f-pot').value.trim() || null;
+  const toxic = document.getElementById('f-toxic').checked;
+  const status = document.getElementById('f-status').value.trim() || null;
+
+  if (!id || !name || !type || !loc) {
+    alert('ID, Name, Type, and Location are required.');
+    return;
+  }
+  if (formMode === 'add' && PLANTS.some(p => p.id === id)) {
+    alert('A plant with id "' + id + '" already exists. Pick a different id.');
+    return;
+  }
+
+  btn.innerHTML = '<span class="spin"></span> Saving…';
+  btn.disabled = true;
+
+  const row = { id, name, sub, sci, type, loc, pot, toxic, archived_at: null };
+  let res;
+  if (formMode === 'add') {
+    row.sort_order = PLANTS.length;   // append at end
+    row.status = status;
+    res = await withKey('add plant', () => sb.from('plants').insert(row));
+  } else {
+    res = await withKey('update plant', () => sb.from('plants').update(row).eq('id', formEditingId));
+  }
+
+  if (res.error) {
+    alert('Save failed: ' + res.error.message);
+    btn.innerHTML = 'Save';
+    btn.disabled = false;
+    return;
+  }
+
+  // Re-load so PLANTS reflects the new state, then refresh views
+  await loadData();
+  closePlantForm();
+  btn.innerHTML = 'Save';
+  btn.disabled = false;
+
+  // If we just edited the currently-open plant, refresh its detail modal
+  if (formMode === 'edit' && selectedId === formEditingId) openModal(selectedId);
+}
+
+async function archivePlant() {
+  if (!selectedId) return;
+  const p = PLANTS.find(x => x.id === selectedId);
+  if (!confirm('Archive "' + (p?.name || selectedId) + '"? It will be hidden from the grid. You can unarchive it later from the Supabase dashboard.')) return;
+
+  const btn = document.getElementById('archive-btn');
+  btn.innerHTML = '<span class="spin"></span> Archiving…';
+  btn.disabled = true;
+
+  const { error } = await withKey('archive plant', () =>
+    sb.from('plants').update({ archived_at: new Date().toISOString() }).eq('id', selectedId)
+  );
+
+  if (error) {
+    alert('Archive failed: ' + error.message);
+    btn.innerHTML = '🗄 Archive';
+    btn.disabled = false;
+    return;
+  }
+
+  closeModal();
+  await loadData();
+}
+
+document.getElementById('add-plant-btn').addEventListener('click', () => openPlantForm('add', null));
+document.getElementById('edit-details-btn').addEventListener('click', () => {
+  const p = PLANTS.find(x => x.id === selectedId);
+  if (p) openPlantForm('edit', p);
+});
+document.getElementById('archive-btn').addEventListener('click', archivePlant);
+document.getElementById('form-close').addEventListener('click', closePlantForm);
+document.getElementById('form-cancel').addEventListener('click', closePlantForm);
+document.getElementById('form-save').addEventListener('click', savePlant);
+document.getElementById('form-overlay').addEventListener('click', e => {
+  if (e.target === document.getElementById('form-overlay')) closePlantForm();
+});
 
 // ── Event listeners ──────────────────────────────────────────────────────────
 document.getElementById('search').addEventListener('input', () => {

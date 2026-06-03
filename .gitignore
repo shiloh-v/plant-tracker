@@ -6,6 +6,9 @@
 .idea/
 *.swp
 
+# Claude Code per-user settings + local launch config
+.claude/
+
 # Env / secrets
 .env
 .env.local
