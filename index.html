@@ -317,6 +317,10 @@
           <div style="font-size:10px;color:var(--muted);margin-top:3px;text-align:center">🍴 days</div>
         </div>
       </div>
+      <label style="display:flex;align-items:center;gap:8px;margin-top:8px;padding:7px 11px;background:var(--warn-bg);border-radius:8px;color:var(--warn-fg);font-size:12px;font-weight:600;cursor:pointer">
+        <input type="checkbox" id="f-seasonal">
+        🍂 Cadence shifts seasonally (winter dormancy, etc.)
+      </label>
     </div>
 
     <div class="field-wrap" id="f-status-wrap">
@@ -384,6 +388,7 @@ let overrides = {};      // id -> {status, notes, photo_ts, updated_at}
 let photoURLs = {};      // id -> latest public URL string (with cache-bust)
 let photoHistory = {};   // id -> [{url, ts, label}] newest-first
 let careEvents = {};     // plant_id -> events array (sorted newest-first)
+let hasSeasonalCol = false;  // set true after loadData if plants.seasonal_care exists
 let selectedId = null;
 let tab = 'all';
 let locFilter = 'all';
@@ -528,6 +533,7 @@ async function loadData() {
   if (bucketRes.error)    throw bucketRes.error;
 
   PLANTS = plantsRes.data || [];
+  hasSeasonalCol = PLANTS.length > 0 && 'seasonal_care' in PLANTS[0];
   overrides = {};
   photoURLs = {};
   photoHistory = {};
@@ -909,12 +915,17 @@ function renderCareSection(id) {
     '</div>'
   );
 
+  const seasonalBanner = plant.seasonal_care
+    ? '<div style="margin-top:6px;padding:7px 10px;background:var(--warn-bg);color:var(--warn-fg);border-radius:8px;font-size:11px;font-weight:600;line-height:1.4">🍂 Cadence shifts seasonally — reduce watering in fall/winter, often stop feeding entirely. Revisit these numbers when daylight drops.</div>'
+    : '';
+
   wrap.innerHTML =
     '<div class="field-label">Care log</div>' +
     '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">' +
       cell('Water', 'water', water, plant.water_every_days) +
       cell('Feed',  'feed',  feed,  plant.feed_every_days) +
     '</div>' +
+    seasonalBanner +
     '<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">' +
       otherBtn('repot',   '🌱 Repot') +
       otherBtn('prune',   '✂️ Prune') +
@@ -1231,6 +1242,7 @@ function openPlantForm(mode, plant) {
   document.getElementById('f-toxic').checked = !!plant?.toxic;
   document.getElementById('f-water-every').value = plant?.water_every_days ?? '';
   document.getElementById('f-feed-every').value  = plant?.feed_every_days  ?? '';
+  document.getElementById('f-seasonal').checked  = !!plant?.seasonal_care;
   document.getElementById('f-status').value = plant?.status || '';
 
   // Initial-status field only matters for new plants; hide on edit
@@ -1269,6 +1281,7 @@ async function savePlant() {
   const feed_raw  = document.getElementById('f-feed-every').value.trim();
   const water_every_days = water_raw ? parseInt(water_raw, 10) : null;
   const feed_every_days  = feed_raw  ? parseInt(feed_raw,  10) : null;
+  const seasonal_care = document.getElementById('f-seasonal').checked;
   const status = document.getElementById('f-status').value.trim() || null;
 
   if (!id || !name || !type || !loc) {
@@ -1284,6 +1297,7 @@ async function savePlant() {
   btn.disabled = true;
 
   const row = { id, name, sub, sci, type, loc, pot, toxic, water_every_days, feed_every_days, archived_at: null };
+  if (hasSeasonalCol) row.seasonal_care = seasonal_care;
   let res;
   if (formMode === 'add') {
     row.sort_order = PLANTS.length;   // append at end
