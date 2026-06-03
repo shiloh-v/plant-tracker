@@ -68,16 +68,40 @@ create trigger plants_touch
 -- Returns true if the request includes the expected X-Plant-Key header.
 -- The header is sent by the app's Supabase client (see index.html) and
 -- forwarded by PostgREST into request.headers.
-create or replace function public.plant_key_ok()
-returns boolean
-language sql
-stable
-as $$
-  select coalesce(
-    current_setting('request.headers', true)::json->>'x-plant-key',
-    ''
-  ) = 'REPLACE_WITH_YOUR_PASSPHRASE'
-$$;
+--
+-- This block ONLY creates the function if it doesn't already exist with a
+-- real passphrase. Re-running this migration after you've set your real
+-- passphrase will NOT clobber it. To rotate the passphrase, run the
+-- "create or replace" statement at the bottom of this file directly.
+do $outer$
+begin
+  if not exists (
+    select 1
+    from pg_proc
+    where proname = 'plant_key_ok'
+      and pronamespace = 'public'::regnamespace
+      and prosrc not like '%REPLACE_WITH_YOUR_PASSPHRASE%'
+  ) then
+    execute $sql$
+      create or replace function public.plant_key_ok()
+      returns boolean language sql stable as $body$
+        select coalesce(
+          current_setting('request.headers', true)::json->>'x-plant-key',
+          ''
+        ) = 'REPLACE_WITH_YOUR_PASSPHRASE'
+      $body$
+    $sql$;
+  end if;
+end
+$outer$;
+-- To set or rotate your passphrase later, run this (replacing the value):
+--   create or replace function public.plant_key_ok()
+--   returns boolean language sql stable as $$
+--     select coalesce(
+--       current_setting('request.headers', true)::json->>'x-plant-key',
+--       ''
+--     ) = 'YOUR_NEW_PASSPHRASE'
+--   $$;
 
 
 -- ── RLS: plants ───────────────────────────────────────────────────────────────
