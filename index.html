@@ -8,7 +8,8 @@
 <meta name="theme-color" content="#2d5a27">
 <title>Shiloh's Plants</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%8C%BF%3C/text%3E%3C/svg%3E">
-<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%232d5a27' rx='20'/%3E%3Ctext x='50' y='72' font-size='62' text-anchor='middle'%3E%F0%9F%8C%BF%3C/text%3E%3C/svg%3E">
+<link rel="apple-touch-icon" href="icon-192.svg">
+<link rel="manifest" href="manifest.json">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,700;1,9..144,400&family=Nunito:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
@@ -187,7 +188,8 @@
   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px;flex-wrap:wrap">
     <div id="count-label"></div>
     <div style="display:flex;gap:6px;align-items:center">
-      <button id="select-btn" style="background:var(--cream);border:1px solid var(--border);border-radius:14px;font-size:11px;font-weight:700;color:var(--muted);padding:4px 10px;font-family:inherit;cursor:pointer">☑ Select</button>
+      <button id="log-all-overdue-btn" style="background:var(--good-bg);color:var(--good-fg);border:1px solid var(--good-fg);border-radius:14px;font-size:11px;font-weight:700;padding:4px 10px;font-family:inherit;cursor:pointer;display:none">💧 Log water for all overdue</button>
+      <button id="select-btn" style="background:var(--green);color:white;border:none;border-radius:14px;font-size:11px;font-weight:700;padding:4px 11px;font-family:inherit;cursor:pointer">☑ Select multiple</button>
       <select id="sort-select" style="background:var(--cream);border:1px solid var(--border);border-radius:14px;font-size:11px;font-weight:700;color:var(--muted);padding:4px 22px 4px 10px;font-family:inherit;cursor:pointer;-webkit-appearance:none;appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2210%22 height=%2210%22 viewBox=%220 0 10 10%22><path fill=%22%237a7060%22 d=%22M1 3l4 4 4-4z%22/></svg>');background-repeat:no-repeat;background-position:right 7px center">
         <option value="name">Name A-Z</option>
         <option value="updated">Recently updated</option>
@@ -358,6 +360,7 @@
 
 <!-- ── Supabase ── -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/exifr@7.1.3/dist/lite.umd.js"></script>
 <script>
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -489,6 +492,13 @@ function statusTheme(s) {
 }
 
 // ── Photo URL helper ────────────────────────────────────────────────────────
+// Parse the embedded ms-timestamp out of a photo filename like "1717387200000.jpg"
+// or "1717387200000-2.jpg" (collision suffix). Returns null if filename doesn't match.
+function tsFromFilename(name) {
+  const m = name.match(/^(\d{10,})(?:-\d+)?\.jpg$/);
+  return m ? parseInt(m[1], 10) : null;
+}
+
 function photoURL(id, ts) {
   return `${SUPABASE_URL}/storage/v1/object/public/${BUCKET}/${id}.jpg${ts ? '?t='+ts : ''}`;
 }
@@ -569,16 +579,20 @@ async function loadData() {
       if (jpgs.length === 0) return;
 
       const history = jpgs.map((f, i) => {
+        // Filename encodes the "date taken" timestamp (EXIF or upload-time
+        // fallback for old uploads). Parse it; fall back to file metadata.
+        const fnTs = tsFromFilename(f.name);
         const filets = f.updated_at || f.created_at;
-        const ts = filets ? new Date(filets).getTime() : Date.now() - i * 1000;
+        const ts = fnTs || (filets ? new Date(filets).getTime() : Date.now() - i * 1000);
         const url = `${SUPABASE_URL}/storage/v1/object/public/${BUCKET}/${id}/${f.name}?t=${ts}`;
-        const date = filets ? new Date(filets).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }) : '—';
+        const date = new Date(ts).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
         return { url, ts, label: date, filename: f.name };
       });
+      // Newest first by date-taken
+      history.sort((a, b) => b.ts - a.ts);
 
       photoHistory[id] = history;
-      const latestTs = overrides[id]?.photo_ts || history[0].ts;
-      photoURLs[id] = `${SUPABASE_URL}/storage/v1/object/public/${BUCKET}/${id}/${history[0].filename}?t=${latestTs}`;
+      photoURLs[id] = history[0].url;
     });
 
     Object.entries(flatFiles).forEach(([id, entry]) => {
@@ -650,8 +664,9 @@ function careStatus(plant, kind, cadence) {
   return { days, dueIn, lastDate: new Date(last.occurred_at) };
 }
 
-async function logCareEvent(plantId, kind) {
+async function logCareEvent(plantId, kind, notes) {
   const row = { plant_id: plantId, kind, occurred_at: new Date().toISOString() };
+  if (notes && notes.trim()) row.notes = notes.trim();
   const { data, error } = await withKey('log ' + kind, () =>
     sb.from('care_events').insert(row).select().single()
   );
@@ -661,6 +676,30 @@ async function logCareEvent(plantId, kind) {
   }
   (careEvents[plantId] = careEvents[plantId] || []).unshift(data);
   return true;
+}
+
+// Long-press helper — pointer-based so it works for mouse and touch alike.
+// Calls onShort for a tap (release before holdMs); onLong for a hold.
+function attachLongPress(el, onShort, onLong, holdMs) {
+  if (holdMs == null) holdMs = 500;
+  let timer = null, fired = false;
+  const cancel = () => { if (timer) clearTimeout(timer); timer = null; };
+  el.addEventListener('pointerdown', e => {
+    fired = false;
+    cancel();
+    timer = setTimeout(() => {
+      fired = true;
+      timer = null;
+      if (navigator.vibrate) try { navigator.vibrate(15); } catch (_) {}
+      onLong();
+    }, holdMs);
+  });
+  el.addEventListener('pointerup', () => {
+    cancel();
+    if (!fired) onShort();
+  });
+  el.addEventListener('pointerleave', cancel);
+  el.addEventListener('pointercancel', cancel);
 }
 
 // ── Render helpers ──────────────────────────────────────────────────────────
@@ -744,10 +783,34 @@ function renderAttentionBadge() {
   else       { badge.style.display = 'none'; }
 }
 
+// Plants whose water cadence is set AND last watered is past the cadence (or never)
+function isWaterOverdue(p) {
+  if (p.archived_at) return false;
+  if (!p.water_every_days) return false;
+  const w = careStatus(p, 'water', p.water_every_days);
+  return w.dueIn !== null && w.dueIn <= 0;
+}
+
+function renderLogAllOverdueBtn(visiblePlants) {
+  const btn = document.getElementById('log-all-overdue-btn');
+  if (!btn) return;
+  // Count among the currently filtered/visible set so the button represents
+  // what the user is actually looking at
+  const overdue = visiblePlants.filter(isWaterOverdue);
+  if (overdue.length === 0) {
+    btn.style.display = 'none';
+  } else {
+    btn.style.display = 'inline-block';
+    btn.textContent = '💧 Log water for ' + overdue.length + ' overdue';
+    btn.dataset.ids = overdue.map(p => p.id).join(',');
+  }
+}
+
 function renderGrid() {
   renderLocPills();
   renderAttentionBadge();
   const plants = getFilteredPlants();
+  renderLogAllOverdueBtn(plants);
   document.getElementById('count-label').textContent = `${plants.length} plant${plants.length !== 1 ? 's' : ''}`;
   const grid = document.getElementById('grid');
   grid.innerHTML = plants.map(p => {
@@ -834,6 +897,42 @@ function openModal(id) {
   document.body.style.overflow = 'hidden';
 }
 
+// Renders one row of the per-plant care history. If editingId matches the
+// event id, renders an inline edit form (date + notes + Save / Cancel / Delete).
+const KIND_ICON = { water:'💧', feed:'🍴', repot:'🌱', prune:'✂️', inspect:'👀', other:'•' };
+
+function fmtDatetimeLocal(d) {
+  // YYYY-MM-DDTHH:MM in the user's local timezone — what <input type="datetime-local"> wants
+  const pad = n => String(n).padStart(2, '0');
+  return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate()) +
+    'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+}
+
+function renderHistoryRow(ev, editingId) {
+  const icon = KIND_ICON[ev.kind] || '•';
+  const when = new Date(ev.occurred_at);
+  const today = new Date(); today.setHours(0,0,0,0);
+  const evDay = new Date(when); evDay.setHours(0,0,0,0);
+  const days = Math.floor((today - evDay) / 86400000);
+  const rel = days === 0 ? 'Today' : days === 1 ? 'Yesterday' : days < 0 ? Math.abs(days) + 'd in future' : days + 'd ago';
+  const abs = when.toLocaleString('en-US', { month:'short', day:'numeric', year:'numeric', hour:'numeric', minute:'2-digit' });
+
+  if (editingId === ev.id) {
+    return '<div data-event-id="' + ev.id + '" data-edit="1" style="padding:9px 11px;background:var(--soft);border-radius:8px;display:flex;flex-direction:column;gap:7px">' +
+      '<div style="font-size:12px;font-weight:700"><span style="margin-right:6px">' + icon + '</span>' + ev.kind + '</div>' +
+      '<input type="datetime-local" data-edit-date value="' + fmtDatetimeLocal(when) + '" style="padding:6px 8px;border-radius:6px;border:1px solid var(--border);font-size:12px;font-family:inherit;background:white">' +
+      '<input type="text" data-edit-notes value="' + (ev.notes || '').replace(/"/g, '&quot;') + '" placeholder="Optional note" style="padding:6px 8px;border-radius:6px;border:1px solid var(--border);font-size:12px;font-family:inherit;background:white">' +
+      '<div style="display:flex;gap:6px">' +
+        '<button data-edit-save  style="flex:1;padding:6px;border-radius:6px;border:none;background:var(--green);color:white;font-size:11px;font-weight:700;font-family:inherit;cursor:pointer">Save</button>' +
+        '<button data-edit-cancel style="flex:1;padding:6px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:11px;font-weight:700;font-family:inherit;cursor:pointer">Cancel</button>' +
+        '<button data-edit-delete style="padding:6px 10px;border-radius:6px;border:1px solid #fca5a5;background:transparent;color:var(--danger-fg);font-size:11px;font-weight:700;font-family:inherit;cursor:pointer">Delete</button>' +
+      '</div>' +
+    '</div>';
+  }
+
+  return '<div data-event-id="' + ev.id + '" style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;padding:6px 9px;background:var(--soft);border-radius:8px;font-size:12px;cursor:pointer" title="Tap to edit"><span><strong style="margin-right:6px">' + icon + '</strong>' + ev.kind + (ev.notes ? ' — <span style="color:var(--muted)">' + ev.notes.replace(/</g,'&lt;') + '</span>' : '') + '</span><span style="color:var(--muted);font-size:11px;white-space:nowrap" title="' + abs + '">' + rel + '</span></div>';
+}
+
 // Renders the care log strip: last watered / last fed plus quick log buttons.
 function renderCareSection(id) {
   const wrap = document.getElementById('care-section');
@@ -900,16 +999,7 @@ function renderCareSection(id) {
     '</button>' +
     (historyOpen ?
       '<div style="margin-top:8px;display:flex;flex-direction:column;gap:6px">' +
-        events.map(ev => {
-          const icon = { water:'💧', feed:'🍴', repot:'🌱', prune:'✂️', inspect:'👀', other:'•' }[ev.kind] || '•';
-          const when = new Date(ev.occurred_at);
-          const today = new Date(); today.setHours(0,0,0,0);
-          const evDay = new Date(when); evDay.setHours(0,0,0,0);
-          const days = Math.floor((today - evDay) / 86400000);
-          const rel = days === 0 ? 'Today' : days === 1 ? 'Yesterday' : days + ' days ago';
-          const abs = when.toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
-          return '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;padding:6px 9px;background:var(--soft);border-radius:8px;font-size:12px"><span><strong style="margin-right:6px">' + icon + '</strong>' + ev.kind + (ev.notes ? ' — <span style="color:var(--muted)">' + ev.notes.replace(/</g,'&lt;') + '</span>' : '') + '</span><span style="color:var(--muted);font-size:11px;white-space:nowrap" title="' + abs + '">' + rel + '</span></div>';
-        }).join('') +
+        events.map(ev => renderHistoryRow(ev, wrap.dataset.editingEventId)).join('') +
       '</div>'
       : '') +
     '</div>'
@@ -931,26 +1021,99 @@ function renderCareSection(id) {
       otherBtn('prune',   '✂️ Prune') +
       otherBtn('inspect', '👀 Inspect') +
     '</div>' +
+    '<div style="font-size:10px;color:var(--muted);margin-top:6px;opacity:.7">Tap to log instantly · long-press to add a note</div>' +
     historyHTML;
 
   wrap.querySelectorAll('button[data-log-kind]').forEach(btn => {
-    btn.addEventListener('click', async () => {
-      const kind = btn.dataset.logKind;
+    const kind = btn.dataset.logKind;
+    const runLog = async notes => {
       const original = btn.innerHTML;
       btn.disabled = true;
       btn.innerHTML = '<span class="spin"></span> Logging…';
-      const ok = await logCareEvent(id, kind);
+      const ok = await logCareEvent(id, kind, notes);
       btn.disabled = false;
       if (ok) renderCareSection(id);
       else btn.innerHTML = original;
-    });
+    };
+    attachLongPress(
+      btn,
+      () => runLog(null),
+      () => {
+        const note = window.prompt('Optional note for this ' + kind + ' event:');
+        if (note !== null) runLog(note);
+      }
+    );
   });
 
   const toggle = wrap.querySelector('#care-history-toggle');
   if (toggle) toggle.addEventListener('click', () => {
     wrap.dataset.historyOpen = wrap.dataset.historyOpen === '1' ? '0' : '1';
+    delete wrap.dataset.editingEventId;
     renderCareSection(id);
   });
+
+  // Click a history row to open inline edit
+  wrap.querySelectorAll('[data-event-id]:not([data-edit])').forEach(row => {
+    row.addEventListener('click', () => {
+      wrap.dataset.editingEventId = row.dataset.eventId;
+      renderCareSection(id);
+    });
+  });
+
+  // Save / Cancel / Delete inside the inline edit form
+  const editRow = wrap.querySelector('[data-edit]');
+  if (editRow) {
+    const evId = editRow.dataset.eventId;
+    editRow.querySelector('[data-edit-cancel]').addEventListener('click', () => {
+      delete wrap.dataset.editingEventId;
+      renderCareSection(id);
+    });
+    editRow.querySelector('[data-edit-save]').addEventListener('click', async () => {
+      const dateVal = editRow.querySelector('[data-edit-date]').value;
+      const notesVal = editRow.querySelector('[data-edit-notes]').value.trim();
+      if (!dateVal) { alert('Date required.'); return; }
+      const payload = { occurred_at: new Date(dateVal).toISOString(), notes: notesVal || null };
+      const saveBtn = editRow.querySelector('[data-edit-save]');
+      saveBtn.disabled = true;
+      saveBtn.textContent = 'Saving…';
+      const { data, error } = await withKey('edit care event', () =>
+        sb.from('care_events').update(payload).eq('id', evId).select(),
+        { expectRows: true }
+      );
+      if (error) {
+        alert('Save failed: ' + error.message);
+        saveBtn.disabled = false; saveBtn.textContent = 'Save';
+        return;
+      }
+      // Update local state — replace the row, then re-sort newest-first
+      const list = careEvents[id] || [];
+      const idx = list.findIndex(e => e.id === evId);
+      if (idx >= 0 && data && data[0]) list[idx] = data[0];
+      list.sort((a, b) => new Date(b.occurred_at) - new Date(a.occurred_at));
+      delete wrap.dataset.editingEventId;
+      renderCareSection(id);
+      renderGrid();  // attention status may change if "last watered" date moved
+    });
+    editRow.querySelector('[data-edit-delete]').addEventListener('click', async () => {
+      if (!confirm('Delete this care event? This cannot be undone.')) return;
+      const delBtn = editRow.querySelector('[data-edit-delete]');
+      delBtn.disabled = true;
+      delBtn.textContent = 'Deleting…';
+      const { error } = await withKey('delete care event', () =>
+        sb.from('care_events').delete().eq('id', evId).select(),
+        { expectRows: true }
+      );
+      if (error) {
+        alert('Delete failed: ' + error.message);
+        delBtn.disabled = false; delBtn.textContent = 'Delete';
+        return;
+      }
+      careEvents[id] = (careEvents[id] || []).filter(e => e.id !== evId);
+      delete wrap.dataset.editingEventId;
+      renderCareSection(id);
+      renderGrid();
+    });
+  }
 }
 
 function closeModal() {
@@ -1012,27 +1175,46 @@ async function uploadPhoto(file) {
   btn.innerHTML = '<span class="spin"></span> Uploading…';
   btn.disabled = true;
 
+  // Extract EXIF "date taken" BEFORE compress strips metadata. Falls back to
+  // upload time if EXIF is missing (screenshots, edited files, etc.).
+  let ts = null;
+  try {
+    if (typeof exifr !== 'undefined') {
+      const exif = await exifr.parse(file, ['DateTimeOriginal', 'CreateDate', 'ModifyDate']);
+      const date = exif?.DateTimeOriginal || exif?.CreateDate || exif?.ModifyDate;
+      if (date instanceof Date && !isNaN(date.getTime())) ts = date.getTime();
+    }
+  } catch (e) { /* no EXIF — fall through */ }
+  if (!ts) ts = Date.now();
+
   const blob = await compress(file);
-  const ts = Date.now();
-  // Write to {id}/{timestamp}.jpg so each upload is a new file — history is preserved
-  const filename = `${ts}.jpg`;
+
+  // Filename = the timestamp in millis, so list+sort by name = chronological.
+  // If two photos genuinely share the exact ts (rare), suffix with a counter.
+  const existingNames = new Set((photoHistory[selectedId] || []).map(p => p.filename));
+  let filename = ts + '.jpg';
+  let suffix = 1;
+  while (existingNames.has(filename)) { filename = ts + '-' + suffix + '.jpg'; suffix++; }
   const path = `${selectedId}/${filename}`;
   const { error } = await withKey('upload photo', () =>
     sb.storage.from(BUCKET).upload(path, blob, { contentType: 'image/jpeg', upsert: false })
   );
 
   if (!error) {
-    const url = `${SUPABASE_URL}/storage/v1/object/public/${BUCKET}/${path}?t=${ts}`;
+    const url = `${SUPABASE_URL}/storage/v1/object/public/${BUCKET}/${path}?t=${Date.now()}`;
     photoURLs[selectedId] = url;
 
-    // Prepend to local history
-    const date = new Date().toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
+    // Insert into history at the right chronological spot (newest first)
+    const date = new Date(ts).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
     if (!photoHistory[selectedId]) photoHistory[selectedId] = [];
-    photoHistory[selectedId].unshift({ url, ts, label: date, filename });
+    photoHistory[selectedId].push({ url, ts, label: date, filename });
+    photoHistory[selectedId].sort((a, b) => b.ts - a.ts);
+    // The "current" photo is now the newest by date taken — refresh display URL
+    photoURLs[selectedId] = photoHistory[selectedId][0].url;
 
-    // Save timestamp to DB
+    // Save timestamp to DB (the newest-by-taken-date photo's ts)
     const existing = overrides[selectedId] || { id: selectedId };
-    const row = { ...existing, photo_ts: ts, updated_at: new Date().toISOString() };
+    const row = { ...existing, photo_ts: photoHistory[selectedId][0].ts, updated_at: new Date().toISOString() };
     await withKey('record photo timestamp', () => sb.from('plant_overrides').upsert(row).select(), { expectRows: true });
     overrides[selectedId] = row;
 
@@ -1463,6 +1645,32 @@ async function bulkLog(kind) {
 }
 
 document.getElementById('select-btn').addEventListener('click', () => setSelectMode(!selectMode));
+
+document.getElementById('log-all-overdue-btn').addEventListener('click', async () => {
+  const btn = document.getElementById('log-all-overdue-btn');
+  const ids = (btn.dataset.ids || '').split(',').filter(Boolean);
+  if (ids.length === 0) return;
+  if (!confirm('Log a watering right now for ' + ids.length + ' overdue plant' + (ids.length === 1 ? '' : 's') + '?')) return;
+  const originalText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Logging…';
+  const now = new Date().toISOString();
+  const rows = ids.map(plant_id => ({ plant_id, kind: 'water', occurred_at: now }));
+  const { data, error } = await withKey('log water for ' + ids.length + ' plants', () =>
+    sb.from('care_events').insert(rows).select(),
+    { expectRows: true }
+  );
+  btn.disabled = false;
+  if (error) {
+    alert('Bulk log failed: ' + error.message);
+    btn.textContent = originalText;
+    return;
+  }
+  (data || []).forEach(ev => {
+    (careEvents[ev.plant_id] = careEvents[ev.plant_id] || []).unshift(ev);
+  });
+  renderGrid();
+});
 document.getElementById('bulk-select-all').addEventListener('click', () => {
   getFilteredPlants().forEach(p => selectedIds.add(p.id));
   renderGrid();
@@ -1568,6 +1776,15 @@ document.getElementById('modal').addEventListener('touchend', e => {
 
 // ── Boot ────────────────────────────────────────────────────────────────────
 loadData();
+
+// Register service worker so the app is installable + loads offline.
+// Skipped on file:// since SWs need an HTTP(S) origin.
+if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('service-worker.js')
+      .catch(err => console.warn('Service worker registration failed:', err));
+  });
+}
 </script>
 </body>
 </html>
