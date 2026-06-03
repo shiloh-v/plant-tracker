@@ -227,7 +227,12 @@
     <div id="toxic-warn" class="toxic-warn" style="display:none">☠ TOXIC TO DOGS — keep away from pets</div>
     <div id="care-section" class="field-wrap"></div>
     <div class="field-wrap">
-      <div class="field-label">Current Status</div>
+      <div class="field-label">Care notes <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--muted)">(sticky — not changed by AI)</span></div>
+      <div id="care-notes-display" class="notes-display">None yet — tap Edit to add.</div>
+      <textarea id="care-notes-edit" rows="3" placeholder="Sticky care instructions: temperature limits, watering quirks, safety, etc." style="display:none"></textarea>
+    </div>
+    <div class="field-wrap">
+      <div class="field-label">Current Status <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--muted)">(refreshed by AI analysis)</span></div>
       <div id="status-display" class="status-display"></div>
       <select id="health-edit" style="display:none;width:100%;padding:8px 11px;border-radius:10px;border:1.5px solid var(--green);font-size:13px;font-family:inherit;background:white;margin-bottom:6px">
         <option value="">— pick health —</option>
@@ -238,7 +243,7 @@
         <option value="struggling">Struggling</option>
         <option value="critical">☠ Critical</option>
       </select>
-      <textarea id="status-edit" rows="2" placeholder="Short status (one sentence)" style="display:none"></textarea>
+      <textarea id="status-edit" rows="2" placeholder="Short current condition (one sentence)" style="display:none"></textarea>
     </div>
     <div class="field-wrap">
       <div class="field-label">Notes</div>
@@ -984,6 +989,10 @@ function openModal(id) {
   document.getElementById('status-edit').value = cleanStatus;
   document.getElementById('health-edit').value = h || '';
   document.getElementById('notes-edit').value = ov?.notes || '';
+  document.getElementById('care-notes-edit').value = ov?.care_notes || '';
+  const careNotesDisplay = document.getElementById('care-notes-display');
+  careNotesDisplay.textContent = ov?.care_notes || 'None yet — tap Edit to add.';
+  careNotesDisplay.className = 'notes-display' + (ov?.care_notes ? ' has-notes' : '');
 
   setEditMode(false);
   renderCareSection(id);
@@ -1224,6 +1233,8 @@ function closeModal() {
 
 function setEditMode(on) {
   editMode = on;
+  document.getElementById('care-notes-display').style.display = on ? 'none' : 'block';
+  document.getElementById('care-notes-edit').style.display = on ? 'block' : 'none';
   document.getElementById('status-display').style.display = on ? 'none' : 'block';
   document.getElementById('health-edit').style.display = on ? 'block' : 'none';
   document.getElementById('status-edit').style.display = on ? 'block' : 'none';
@@ -1242,8 +1253,9 @@ async function saveOverride() {
   const status = document.getElementById('status-edit').value.trim();
   const health = document.getElementById('health-edit').value || null;
   const notes = document.getElementById('notes-edit').value.trim();
+  const care_notes = document.getElementById('care-notes-edit').value.trim() || null;
   const existing = overrides[selectedId] || {};
-  const row = { id: selectedId, status, health, notes, photo_ts: existing.photo_ts || null, updated_at: new Date().toISOString() };
+  const row = { id: selectedId, status, health, notes, care_notes, photo_ts: existing.photo_ts || null, updated_at: new Date().toISOString() };
 
   const { error } = await withKey('save status & notes', () =>
     sb.from('plant_overrides').upsert(row).select(),

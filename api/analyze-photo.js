@@ -162,6 +162,7 @@ export default async function handler(req, res) {
       `Type / location: ${plant.type} / ${plant.loc}`,
       `Current status text: ${(override.status || plant.status || '(none)').trim()}`,
     ];
+    if (override.care_notes) ctxLines.push(`Sticky care notes (DO NOT restate or duplicate in status_one_liner): ${override.care_notes.trim()}`);
     if (override.health) ctxLines.push(`Current health rating: ${override.health}`);
     if (plant.water_every_days) ctxLines.push(`Water cadence: every ${plant.water_every_days} days`);
     if (plant.feed_every_days) ctxLines.push(`Feed cadence: every ${plant.feed_every_days} days`);
@@ -199,8 +200,12 @@ export default async function handler(req, res) {
               "Pick the single best `health` value from: thriving | healthy | establishing | " +
               "watch | struggling | critical.\n\n" +
               "Write `status_one_liner` as the new freeform status text the user will see on " +
-              "the plant's card: one short sentence describing current condition. No leading " +
-              "emojis or 'Healthy —' prefixes; the health badge handles that.\n\n" +
+              "the plant's card: one short sentence describing what the plant looks like " +
+              "right now (current condition only). NO care directives, watering reminders, " +
+              "temperature limits, safety warnings, USPP numbers, acquisition dates, or " +
+              "anything sticky — those live in care_notes and the tracker preserves them " +
+              "separately. NO leading emojis or 'Healthy —' prefixes; the health badge " +
+              "handles that.\n\n" +
               "If prior analyses are provided, use `change_vs_prior` for one sentence on what " +
               "has changed since the last one (improving, worsening, no change). Otherwise " +
               "leave it empty.\n\n" +
@@ -253,8 +258,17 @@ export default async function handler(req, res) {
     }
     const noteText = noteLines.join('\n');
 
-    // 9. Write back: update health, replace status with the one-liner, append note
+    // 9. Write back: update health, replace status, append note. Safeguard —
+    // archive the prior status text into the notes log so it's never lost,
+    // even if the user kept care directives in there. (Going forward, those
+    // belong in care_notes — see migration 005 — but old habits + restore.)
+    const priorStatus = (override.status || '').trim();
+    const newStatus = analysis.status_one_liner?.trim() || priorStatus || null;
+    const statusArchive = priorStatus && priorStatus !== newStatus
+      ? `[${today}] Status before AI rewrite: ${priorStatus}\n`
+      : '';
     const existingNotes = override.notes ? override.notes + '\n\n' : '';
+
     const upsertResp = await fetch(`${SUPABASE_URL}/rest/v1/plant_overrides?on_conflict=id`, {
       method: 'POST',
       headers: {
@@ -267,8 +281,8 @@ export default async function handler(req, res) {
       body: JSON.stringify({
         id: plantId,
         health: analysis.health,
-        status: analysis.status_one_liner?.trim() || override.status || null,
-        notes: existingNotes + noteText,
+        status: newStatus,
+        notes: existingNotes + statusArchive + noteText,
         updated_at: new Date().toISOString()
       })
     });
