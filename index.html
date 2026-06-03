@@ -220,6 +220,7 @@
       <div id="history-strip-label">Photo History</div>
       <div id="history-strip"></div>
     </div>
+    <button id="analyze-btn" style="display:none;width:100%;margin-top:10px;padding:10px 16px;background:linear-gradient(135deg,#7c3aed,#6d28d9);color:white;border:none;border-radius:12px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;box-shadow:0 2px 8px rgba(124,58,237,.3)">🔍 Analyze with AI</button>
     <div class="meta-grid" id="meta-grid"></div>
     <div id="toxic-warn" class="toxic-warn" style="display:none">☠ TOXIC TO DOGS — keep away from pets</div>
     <div id="care-section" class="field-wrap"></div>
@@ -910,6 +911,12 @@ function openModal(id) {
   dlBtn.style.display = url ? 'block' : 'none';
   dlBtn.onclick = () => downloadPhoto(id);
   renderHistoryStrip(id);
+
+  // Show the AI analyze button only when there's at least one photo
+  const analyzeBtn = document.getElementById('analyze-btn');
+  analyzeBtn.style.display = url ? 'block' : 'none';
+  analyzeBtn.innerHTML = '🔍 Analyze with AI';
+  analyzeBtn.disabled = false;
 
   // Meta
   document.getElementById('meta-grid').innerHTML = `
@@ -1751,6 +1758,85 @@ document.getElementById('edit-details-btn').addEventListener('click', () => {
   if (p) openPlantForm('edit', p);
 });
 document.getElementById('archive-btn').addEventListener('click', archivePlant);
+
+// ── AI photo analysis (Phase 3) ─────────────────────────────────────────────
+async function analyzeCurrentPlant() {
+  if (!selectedId) return;
+  const btn = document.getElementById('analyze-btn');
+  const plantId = selectedId;
+
+  // Make sure we have a passphrase before hitting the endpoint
+  if (!plantKey) {
+    const ok = await promptPassphrase('Enter your passphrase to use AI analysis.');
+    if (!ok) return;
+  }
+
+  const original = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spin"></span> Analyzing… (10-20s)';
+
+  try {
+    const resp = await fetch('/api/analyze-photo', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-plant-key': plantKey,
+      },
+      body: JSON.stringify({ plantId }),
+    });
+
+    if (resp.status === 401) {
+      // Bad passphrase — re-prompt and retry once
+      const ok = await promptPassphrase('Server rejected the passphrase. Enter it again.');
+      btn.innerHTML = original;
+      btn.disabled = false;
+      if (ok) analyzeCurrentPlant();
+      return;
+    }
+
+    const body = await resp.json();
+    if (!resp.ok) {
+      console.error('Analysis failed:', resp.status, body);
+      const msg = body.error || ('HTTP ' + resp.status);
+      const detail = body.message ? ': ' + body.message : '';
+      alert('Analysis failed — ' + msg + detail);
+      btn.innerHTML = original;
+      btn.disabled = false;
+      return;
+    }
+
+    // Success — the endpoint wrote the new note to plant_overrides. Refresh
+    // local override state and re-render the modal's notes section.
+    const { data } = await sb.from('plant_overrides').select('*').eq('id', plantId).limit(1);
+    if (data && data[0]) {
+      overrides[plantId] = data[0];
+      if (selectedId === plantId) {
+        const notesDisplay = document.getElementById('notes-display');
+        notesDisplay.textContent = data[0].notes || 'No notes yet — tap Edit to add.';
+        notesDisplay.className = 'notes-display' + (data[0].notes ? ' has-notes' : '');
+      }
+    }
+
+    const a = body.analysis;
+    const summary = a
+      ? 'Health: ' + a.health + (a.action_items?.length ? ' · ' + a.action_items.length + ' action item' + (a.action_items.length === 1 ? '' : 's') : '')
+      : 'Analysis saved';
+    showToast('✓ ' + summary + ' — see Notes');
+
+    btn.innerHTML = '✓ Analyzed';
+    setTimeout(() => {
+      btn.innerHTML = '🔍 Analyze with AI';
+      btn.disabled = false;
+    }, 2500);
+  } catch (err) {
+    console.error('Analysis error:', err);
+    alert('Network error: ' + err.message);
+    btn.innerHTML = original;
+    btn.disabled = false;
+  }
+}
+
+document.getElementById('analyze-btn').addEventListener('click', analyzeCurrentPlant);
 document.getElementById('form-close').addEventListener('click', closePlantForm);
 document.getElementById('form-cancel').addEventListener('click', closePlantForm);
 document.getElementById('form-save').addEventListener('click', savePlant);
