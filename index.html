@@ -1281,6 +1281,13 @@ async function uploadOneFile(plantId, file, ts, batchFilenames) {
 // Entry point — handles 1..N files. Extracts dates in parallel, asks for one
 // shared date if some files have no metadata, then uploads sequentially with
 // per-file progress.
+// SHA-256 hex of a Blob/File — used to dedup identical files within a batch
+async function sha256Hex(blob) {
+  const buf = await blob.arrayBuffer();
+  const hash = await crypto.subtle.digest('SHA-256', buf);
+  return [...new Uint8Array(hash)].map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
 async function uploadPhotos(files) {
   if (!selectedId || !files || files.length === 0) return;
   const plantId = selectedId;
@@ -1288,20 +1295,34 @@ async function uploadPhotos(files) {
   btn.disabled = true;
   btn.innerHTML = '<span class="spin"></span> Reading…';
 
+  // Step 0: hash each file and skip exact duplicates within this batch.
+  // Catches the common case of accidentally picking the same photo twice.
+  const fileArr = [...files];
+  const hashed = await Promise.all(fileArr.map(f => sha256Hex(f).then(h => ({ file: f, hash: h }))));
+  const seenHash = new Set();
+  const unique = [];
+  let dupSkipped = 0;
+  for (const h of hashed) {
+    if (seenHash.has(h.hash)) { dupSkipped++; continue; }
+    seenHash.add(h.hash);
+    unique.push(h.file);
+  }
+  if (dupSkipped > 0) console.log('[upload] skipped ' + dupSkipped + ' duplicate file(s) in batch');
+
   // Step 1: extract dates in parallel
   const dated = await Promise.all(
-    [...files].map(f => extractPhotoDate(f).then(r => ({ file: f, ts: r.ts, source: r.source })))
+    unique.map(f => extractPhotoDate(f).then(r => ({ file: f, ts: r.ts, source: r.source })))
   );
 
   // Step 2: if any files have no date, ask for ONE shared date for those
   const needDate = dated.filter(d => !d.ts);
   let batchDefaultTs = null;
   if (needDate.length > 0) {
-    const reason = needDate.length === files.length
-      ? (files.length === 1
+    const reason = needDate.length === dated.length
+      ? (dated.length === 1
           ? 'This photo has no date metadata. Pick the day it was taken.'
-          : 'These ' + files.length + ' photos have no date metadata. Pick one date for the batch.')
-      : needDate.length + ' of ' + files.length + ' photos have no date metadata. Pick the day for those (the rest use their EXIF date).';
+          : 'These ' + dated.length + ' photos have no date metadata. Pick one date for the batch.')
+      : needDate.length + ' of ' + dated.length + ' photos have no date metadata. Pick the day for those (the rest use their EXIF date).';
     const picked = await promptDate(reason, new Date());
     if (picked === null) {
       // User cancelled — abort whole batch
@@ -1354,13 +1375,16 @@ async function uploadPhotos(files) {
 
   // Step 6: report
   const errors = results.filter(r => r.error);
-  if (errors.length === 0 && ok.length === 1) {
+  const dupSuffix = dupSkipped > 0 ? ' (skipped ' + dupSkipped + ' duplicate' + (dupSkipped === 1 ? '' : 's') + ')' : '';
+  if (dated.length === 0) {
+    showToast('All ' + dupSkipped + ' photo' + (dupSkipped === 1 ? ' was a' : 's were') + ' duplicate — nothing uploaded');
+  } else if (errors.length === 0 && ok.length === 1) {
     const r = results[0];
-    showToast('Uploaded · date from ' + r.source + ': ' + new Date(r.ts).toLocaleDateString());
+    showToast('Uploaded · date from ' + r.source + ': ' + new Date(r.ts).toLocaleDateString() + dupSuffix);
   } else if (errors.length === 0) {
-    showToast('Uploaded ' + ok.length + ' photos');
+    showToast('Uploaded ' + ok.length + ' photos' + dupSuffix);
   } else {
-    showToast(ok.length + ' uploaded, ' + errors.length + ' failed — check console');
+    showToast(ok.length + ' uploaded, ' + errors.length + ' failed' + dupSuffix + ' — check console');
     errors.forEach((e, i) => console.warn('Upload', i, 'failed:', e.error?.message || e.error));
   }
 
