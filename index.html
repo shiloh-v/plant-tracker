@@ -27,13 +27,13 @@
     --sky-bg: #e0f2fe; --sky-fg: #0369a1;
   }
   /* Dark mode: override inline "background:white" on inputs/buttons throughout */
-  body.dark input:not([type="checkbox"]):not([type="radio"]),
-  body.dark textarea,
-  body.dark select,
-  body.dark [style*="background:white"] { background: var(--cream) !important; color: var(--text); border-color: var(--border) !important; }
-  body.dark [style*="background:white"][style*="color:var(--green)"] { color: var(--green) !important; }
-  body.dark img.hist-thumb-img, body.dark .hist-thumb img { border-color: var(--border); }
-  body.dark {
+  html.dark input:not([type="checkbox"]):not([type="radio"]),
+  html.dark textarea,
+  html.dark select,
+  html.dark [style*="background:white"] { background: var(--cream) !important; color: var(--text); border-color: var(--border) !important; }
+  html.dark [style*="background:white"][style*="color:var(--green)"] { color: var(--green) !important; }
+  html.dark img.hist-thumb-img, html.dark .hist-thumb img { border-color: var(--border); }
+  html.dark {
     --green: #5fa554;
     --cream: #2a241e;
     --bg: #1a1612;
@@ -348,7 +348,7 @@
   <div id="lb-caption" style="position:absolute;bottom:18px;left:0;right:0;text-align:center;color:rgba(255,255,255,.85);font-size:13px;font-family:inherit;font-weight:600;pointer-events:none"></div>
 </div>
 
-<input type="file" id="file-input" accept="image/*">
+<input type="file" id="file-input" accept="image/*" style="display:none">
 
 <!-- ── Supabase ── -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -1362,14 +1362,14 @@ document.getElementById('sort-select').addEventListener('change', e => {
 
 // Theme toggle (dark mode persists in localStorage)
 function applyTheme(t) {
-  document.body.classList.toggle('dark', t === 'dark');
+  document.documentElement.classList.toggle('dark', t === 'dark');
   document.getElementById('theme-btn').textContent = t === 'dark' ? '☀️' : '🌙';
   const meta = document.querySelector('meta[name="theme-color"]');
   if (meta) meta.setAttribute('content', t === 'dark' ? '#1a1612' : '#2d5a27');
 }
 applyTheme(localStorage.getItem('theme') || 'light');
 document.getElementById('theme-btn').addEventListener('click', () => {
-  const next = document.body.classList.contains('dark') ? 'light' : 'dark';
+  const next = document.documentElement.classList.contains('dark') ? 'light' : 'dark';
   localStorage.setItem('theme', next);
   applyTheme(next);
 });
