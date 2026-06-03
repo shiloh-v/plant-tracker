@@ -143,4 +143,8 @@ create policy plant_photos_delete on storage.objects
   for delete using (bucket_id = 'plant-photos' and public.plant_key_ok());
 
 
+-- ── Refresh PostgREST schema cache so new columns/tables are usable now ──────
+notify pgrst, 'reload schema';
+
+
 -- ── Done. Run scripts/seed.html next. ────────────────────────────────────────

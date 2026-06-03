@@ -53,4 +53,10 @@ create policy care_events_delete on public.care_events
   for delete using (public.plant_key_ok());
 
 
+-- ── Refresh PostgREST schema cache so new columns/tables are usable now ──────
+-- Without this, the API layer keeps its old schema in memory and writes to new
+-- columns fail with "Could not find the 'X' column in the schema cache".
+notify pgrst, 'reload schema';
+
+
 -- ── Done. ────────────────────────────────────────────────────────────────────
