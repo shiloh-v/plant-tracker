@@ -357,7 +357,7 @@
   <div id="lb-caption" style="position:absolute;bottom:18px;left:0;right:0;text-align:center;color:rgba(255,255,255,.85);font-size:13px;font-family:inherit;font-weight:600;pointer-events:none"></div>
 </div>
 
-<input type="file" id="file-input" accept="image/*" style="display:none">
+<input type="file" id="file-input" accept="image/*" multiple style="display:none">
 
 <!-- ── Supabase ── -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -1219,25 +1219,15 @@ async function saveOverride() {
 }
 
 // ── Photo upload ─────────────────────────────────────────────────────────────
-async function uploadPhoto(file) {
-  if (!selectedId || !file) return;
-  const btn = document.getElementById('photo-btn');
-  btn.innerHTML = '<span class="spin"></span> Uploading…';
-  btn.disabled = true;
-
-  // Resolve "when was this photo taken" from every source the browser exposes:
-  //   1. Full EXIF parse — DateTimeOriginal / CreateDate / ModifyDate / GPSDateStamp
-  //   2. XMP — CreateDate / DateCreated / MetadataDate
-  //   3. file.lastModified — set by iOS to the photo's date-added-to-library in
-  //      many flows, though sometimes it's just the upload moment
-  // Source is shown in the toast so you can tell what landed.
-  let ts = null;
-  let source = null;
+// Extract a best-effort "date taken" from a photo file. Returns { ts, source }
+// where ts may be null if no date could be determined. Tries EXIF first (full
+// build, all date-shaped tags), then file.lastModified if it looks old.
+async function extractPhotoDate(file) {
+  let ts = null, source = null;
   try {
     if (typeof exifr !== 'undefined') {
-      // No tag filter — pull everything we can, then pick a date field
       const exif = await exifr.parse(file, { tiff: true, xmp: true, ifd0: true, exif: true, gps: true, mergeOutput: true });
-      console.log('[upload] EXIF full:', exif, 'for', file.name, file.type, file.size + 'B, lastModified=', file.lastModified ? new Date(file.lastModified).toISOString() : '(none)');
+      console.log('[upload] EXIF for', file.name, file.type, file.size + 'B, lastModified=', file.lastModified ? new Date(file.lastModified).toISOString() : '(none)', '→', exif);
       if (exif) {
         const candidates = [
           ['DateTimeOriginal',   exif.DateTimeOriginal],
@@ -1251,93 +1241,136 @@ async function uploadPhoto(file) {
         for (const [tag, val] of candidates) {
           let d = val instanceof Date ? val : (typeof val === 'string' ? new Date(val) : null);
           if (d && !isNaN(d.getTime()) && d.getFullYear() > 1990 && d.getTime() <= Date.now() + 86400000) {
-            ts = d.getTime();
-            source = 'EXIF ' + tag;
-            break;
+            ts = d.getTime(); source = 'EXIF ' + tag; break;
           }
         }
       }
     }
   } catch (e) {
-    console.warn('[upload] EXIF parse threw:', e.message);
+    console.warn('[upload] EXIF parse threw for', file.name, ':', e.message);
   }
-
-  // Fallback: file.lastModified — but only trust it if it's older than ~30 min
-  // (anything newer is almost certainly when iOS materialized the file for upload,
-  // not when the photo was taken)
   if (!ts && file.lastModified) {
     const age = Date.now() - file.lastModified;
-    if (age > 1800000) {
-      ts = file.lastModified;
-      source = 'file.lastModified';
-    } else {
-      console.log('[upload] lastModified is too recent (' + Math.round(age/1000) + 's ago) — ignoring');
-    }
+    if (age > 1800000) { ts = file.lastModified; source = 'file.lastModified'; }
   }
+  return { ts, source };
+}
 
-  if (ts) {
-    const since = Math.floor((Date.now() - ts) / 86400000);
-    showToast('Date from ' + source + ': ' + new Date(ts).toLocaleDateString() + ' (' + (since === 0 ? 'today' : since + 'd ago') + ')');
-  } else {
-    // Truly no date anywhere — prompt as last resort
-    const picked = await promptDate(
-      'This photo has no date metadata (' + (file.type || 'unknown') + '). Pick the day it was taken.',
-      new Date()
-    );
-    if (picked === null) {
-      btn.innerHTML = photoURLs[selectedId] ? '📷 Update photo' : '📷 Add photo';
-      btn.disabled = false;
-      return;
-    }
-    ts = picked.getTime();
-    source = 'manual';
-    showToast('Using ' + picked.toLocaleDateString() + ' for this photo');
-  }
-
+// Upload one already-compressed file at a given ts. Returns { error } or a
+// history-shaped record. batchFilenames lets the caller avoid in-batch name
+// collisions when multiple files share the same fallback ts.
+async function uploadOneFile(plantId, file, ts, batchFilenames) {
   const blob = await compress(file);
-
-  // Filename = the timestamp in millis, so list+sort by name = chronological.
-  // If two photos genuinely share the exact ts (rare), suffix with a counter.
-  const existingNames = new Set((photoHistory[selectedId] || []).map(p => p.filename));
   let filename = ts + '.jpg';
-  let suffix = 1;
-  while (existingNames.has(filename)) { filename = ts + '-' + suffix + '.jpg'; suffix++; }
-  const path = `${selectedId}/${filename}`;
+  let n = 1;
+  const existingNames = new Set((photoHistory[plantId] || []).map(p => p.filename));
+  while (batchFilenames.has(filename) || existingNames.has(filename)) {
+    filename = ts + '-' + n + '.jpg'; n++;
+  }
+  batchFilenames.add(filename);
+  const path = plantId + '/' + filename;
   const { error } = await withKey('upload photo', () =>
     sb.storage.from(BUCKET).upload(path, blob, { contentType: 'image/jpeg', upsert: false })
   );
+  if (error) return { error };
+  const url = `${SUPABASE_URL}/storage/v1/object/public/${BUCKET}/${path}?t=${Date.now()}`;
+  const label = new Date(ts).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
+  return { url, ts, label, filename };
+}
 
-  if (!error) {
-    const url = `${SUPABASE_URL}/storage/v1/object/public/${BUCKET}/${path}?t=${Date.now()}`;
-    photoURLs[selectedId] = url;
+// Entry point — handles 1..N files. Extracts dates in parallel, asks for one
+// shared date if some files have no metadata, then uploads sequentially with
+// per-file progress.
+async function uploadPhotos(files) {
+  if (!selectedId || !files || files.length === 0) return;
+  const plantId = selectedId;
+  const btn = document.getElementById('photo-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spin"></span> Reading…';
 
-    // Insert into history at the right chronological spot (newest first)
-    const date = new Date(ts).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
-    if (!photoHistory[selectedId]) photoHistory[selectedId] = [];
-    photoHistory[selectedId].push({ url, ts, label: date, filename });
-    photoHistory[selectedId].sort((a, b) => b.ts - a.ts);
-    // The "current" photo is now the newest by date taken — refresh display URL
-    photoURLs[selectedId] = photoHistory[selectedId][0].url;
+  // Step 1: extract dates in parallel
+  const dated = await Promise.all(
+    [...files].map(f => extractPhotoDate(f).then(r => ({ file: f, ts: r.ts, source: r.source })))
+  );
 
-    // Save timestamp to DB (the newest-by-taken-date photo's ts)
-    const existing = overrides[selectedId] || { id: selectedId };
-    const row = { ...existing, photo_ts: photoHistory[selectedId][0].ts, updated_at: new Date().toISOString() };
-    await withKey('record photo timestamp', () => sb.from('plant_overrides').upsert(row).select(), { expectRows: true });
-    overrides[selectedId] = row;
-
-    // Refresh photo and history strip in modal
-    document.getElementById('photo-wrap').innerHTML = `<img src="${url}" alt="">`;
-    btn.textContent = '📷 Update photo';
-    const dlBtn = document.getElementById('download-btn');
-    dlBtn.style.display = 'block';
-    dlBtn.onclick = () => downloadPhoto(selectedId);
-    renderHistoryStrip(selectedId);
-    renderGrid();
-  } else {
-    alert('Upload failed: ' + error.message);
-    btn.textContent = '📷 Add photo';
+  // Step 2: if any files have no date, ask for ONE shared date for those
+  const needDate = dated.filter(d => !d.ts);
+  let batchDefaultTs = null;
+  if (needDate.length > 0) {
+    const reason = needDate.length === files.length
+      ? (files.length === 1
+          ? 'This photo has no date metadata. Pick the day it was taken.'
+          : 'These ' + files.length + ' photos have no date metadata. Pick one date for the batch.')
+      : needDate.length + ' of ' + files.length + ' photos have no date metadata. Pick the day for those (the rest use their EXIF date).';
+    const picked = await promptDate(reason, new Date());
+    if (picked === null) {
+      // User cancelled — abort whole batch
+      btn.innerHTML = photoURLs[plantId] ? '📷 Update photo' : '📷 Add photo';
+      btn.disabled = false;
+      return;
+    }
+    batchDefaultTs = picked.getTime();
   }
+
+  // Step 3: upload sequentially with progress
+  const batchFilenames = new Set();
+  const results = [];
+  for (let i = 0; i < dated.length; i++) {
+    const d = dated[i];
+    btn.innerHTML = '<span class="spin"></span> Uploading ' + (i+1) + '/' + dated.length + '…';
+    // If multiple files share the batch-default ts, nudge each by one ms so
+    // they sort distinctly in the history strip
+    const ts = d.ts != null ? d.ts : (batchDefaultTs + i);
+    const r = await uploadOneFile(plantId, d.file, ts, batchFilenames);
+    results.push({ source: d.source || 'manual', ts, ...r });
+  }
+
+  // Step 4: merge successful uploads into local state
+  const ok = results.filter(r => !r.error);
+  if (ok.length > 0) {
+    if (!photoHistory[plantId]) photoHistory[plantId] = [];
+    ok.forEach(r => photoHistory[plantId].push({ url: r.url, ts: r.ts, label: r.label, filename: r.filename }));
+    photoHistory[plantId].sort((a, b) => b.ts - a.ts);
+    photoURLs[plantId] = photoHistory[plantId][0].url;
+
+    const existing = overrides[plantId] || { id: plantId };
+    const row = { ...existing, photo_ts: photoHistory[plantId][0].ts, updated_at: new Date().toISOString() };
+    await withKey('record photo timestamp', () => sb.from('plant_overrides').upsert(row).select(), { expectRows: true });
+    overrides[plantId] = row;
+  }
+
+  // Step 5: refresh views if the detail modal is still open for this plant
+  if (selectedId === plantId) {
+    const url = photoURLs[plantId];
+    if (url) {
+      document.getElementById('photo-wrap').innerHTML = '<img src="' + url + '" alt="">';
+      const dlBtn = document.getElementById('download-btn');
+      dlBtn.style.display = 'block';
+      dlBtn.onclick = () => downloadPhoto(plantId);
+    }
+    renderHistoryStrip(plantId);
+  }
+  renderGrid();
+
+  // Step 6: report
+  const errors = results.filter(r => r.error);
+  if (errors.length === 0 && ok.length === 1) {
+    const r = results[0];
+    showToast('Uploaded · date from ' + r.source + ': ' + new Date(r.ts).toLocaleDateString());
+  } else if (errors.length === 0) {
+    showToast('Uploaded ' + ok.length + ' photos');
+  } else {
+    showToast(ok.length + ' uploaded, ' + errors.length + ' failed — check console');
+    errors.forEach((e, i) => console.warn('Upload', i, 'failed:', e.error?.message || e.error));
+  }
+
+  btn.innerHTML = photoURLs[plantId] ? '📷 Update photo' : '📷 Add photo';
   btn.disabled = false;
+}
+
+// Backwards-compat single-file shim — used by any code path that still passes one file
+async function uploadPhoto(file) {
+  return uploadPhotos([file]);
 }
 
 // ── Photo history strip ──────────────────────────────────────────────────────
@@ -1918,8 +1951,9 @@ lbEl.addEventListener('touchend', e => {
   }
 }, { passive: true });
 document.getElementById('file-input').addEventListener('change', e => {
-  if (e.target.files[0]) uploadPhoto(e.target.files[0]);
+  const files = Array.from(e.target.files || []);
   e.target.value = '';
+  if (files.length > 0) uploadPhotos(files);
 });
 
 document.getElementById('edit-btn').addEventListener('click', () => setEditMode(true));
