@@ -54,7 +54,7 @@
 
   /* ── Header ── */
   #header { background: var(--green); color: white; padding: 16px 14px 12px; position: sticky; top: 0; z-index: 30; box-shadow: 0 2px 12px rgba(0,0,0,.22); }
-  .header-inner { max-width: 860px; margin: 0 auto; }
+  .header-inner { max-width: 1400px; margin: 0 auto; }
   .header-top { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; }
   .header-top h1 { font-family: 'Fraunces', serif; font-size: 20px; font-weight: 700; letter-spacing: -.02em; }
   #search { width: 100%; padding: 8px 14px; border-radius: 20px; border: none; background: rgba(255,255,255,.18); color: white; font-size: 14px; font-family: inherit; outline: none; margin-bottom: 10px; }
@@ -64,13 +64,13 @@
   .tab.active { background: var(--cream); color: var(--green); }
 
   /* ── Loc pills ── */
-  #loc-bar { padding: 10px 12px 0; max-width: 860px; margin: 0 auto; overflow-x: auto; white-space: nowrap; -webkit-overflow-scrolling: touch; }
+  #loc-bar { padding: 10px 12px 0; max-width: 1400px; margin: 0 auto; overflow-x: auto; white-space: nowrap; -webkit-overflow-scrolling: touch; }
   #loc-bar::-webkit-scrollbar { display: none; }
   .loc-pill { display: inline-block; margin-right: 6px; padding: 4px 12px; border-radius: 16px; border: 1.5px solid var(--border); background: var(--cream); color: var(--muted); font-size: 11px; font-weight: 700; cursor: pointer; transition: all .12s; font-family: inherit; white-space: nowrap; }
   .loc-pill.active { background: var(--green); color: white; border-color: var(--green); }
 
   /* ── Grid ── */
-  #grid-wrap { max-width: 860px; margin: 0 auto; padding: 10px 12px 100px; }
+  #grid-wrap { max-width: 1400px; margin: 0 auto; padding: 10px 12px 100px; }
   #count-label { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
   #grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
 
@@ -187,10 +187,10 @@
     <div style="display:flex;gap:6px;align-items:center">
       <button id="select-btn" style="background:var(--cream);border:1px solid var(--border);border-radius:14px;font-size:11px;font-weight:700;color:var(--muted);padding:4px 10px;font-family:inherit;cursor:pointer">☑ Select</button>
       <select id="sort-select" style="background:var(--cream);border:1px solid var(--border);border-radius:14px;font-size:11px;font-weight:700;color:var(--muted);padding:4px 22px 4px 10px;font-family:inherit;cursor:pointer;-webkit-appearance:none;appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2210%22 height=%2210%22 viewBox=%220 0 10 10%22><path fill=%22%237a7060%22 d=%22M1 3l4 4 4-4z%22/></svg>');background-repeat:no-repeat;background-position:right 7px center">
-        <option value="default">Default order</option>
         <option value="name">Name A-Z</option>
         <option value="updated">Recently updated</option>
         <option value="water-oldest">Water: oldest first</option>
+        <option value="default">Default (DB order)</option>
       </select>
     </div>
   </div>
@@ -385,7 +385,7 @@ let careEvents = {};     // plant_id -> events array (sorted newest-first)
 let selectedId = null;
 let tab = 'all';
 let locFilter = 'all';
-let sortBy = localStorage.getItem('sortBy') || 'default';
+let sortBy = localStorage.getItem('sortBy') || 'name';
 let selectMode = false;
 let selectedIds = new Set();
 let editMode = false;
@@ -717,10 +717,12 @@ function sortPlants(list) {
 }
 
 function renderLocPills() {
-  const locs = ['all', ...new Set(PLANTS.filter(p => !p.archived_at && tabMatches(p)).map(p => p.loc))];
   const bar = document.getElementById('loc-bar');
   const q = document.getElementById('search').value.trim();
-  if (q) { bar.innerHTML = ''; return; }
+  // Location pills only show when narrowing by type (Indoor/Outdoor). They're
+  // hidden on All and Attention to keep the header from being overwhelming.
+  if (q || (tab !== 'indoor' && tab !== 'outdoor')) { bar.innerHTML = ''; return; }
+  const locs = ['all', ...new Set(PLANTS.filter(p => !p.archived_at && tabMatches(p)).map(p => p.loc))];
   bar.innerHTML = locs.map(loc =>
     `<button class="loc-pill${locFilter === loc ? ' active' : ''}" data-loc="${loc}">${loc === 'all' ? 'All Areas' : loc}</button>`
   ).join('');
@@ -1093,6 +1095,29 @@ function renderLightbox() {
     '  ·  ' + ph.label + '  ·  ' + (lbIndex + 1) + ' / ' + total;
   document.getElementById('lb-prev').style.display = total > 1 ? 'block' : 'none';
   document.getElementById('lb-next').style.display = total > 1 ? 'block' : 'none';
+  resetZoom();
+}
+
+// ── Pinch zoom + pan ────────────────────────────────────────────────────────
+let lbZoom = 1, lbPanX = 0, lbPanY = 0;
+let pinchStartDist = 0, pinchStartZoom = 1;
+let panStartX = 0, panStartY = 0, panStartPanX = 0, panStartPanY = 0;
+
+function applyTransform(animate) {
+  const img = document.getElementById('lb-img');
+  img.style.transition = animate ? 'transform .18s' : 'none';
+  img.style.transform = 'translate(' + lbPanX + 'px, ' + lbPanY + 'px) scale(' + lbZoom + ')';
+  img.style.cursor = lbZoom > 1 ? 'grab' : 'zoom-in';
+}
+
+function resetZoom(animate) {
+  lbZoom = 1; lbPanX = 0; lbPanY = 0;
+  applyTransform(!!animate);
+}
+
+function pinchDistance(t1, t2) {
+  const dx = t1.clientX - t2.clientX, dy = t1.clientY - t2.clientY;
+  return Math.sqrt(dx * dx + dy * dy);
 }
 
 function lightboxStep(delta) {
@@ -1445,22 +1470,69 @@ document.getElementById('photo-btn').addEventListener('click', () => document.ge
 document.getElementById('lb-close').addEventListener('click', closeLightbox);
 document.getElementById('lb-prev').addEventListener('click', e => { e.stopPropagation(); lightboxStep(-1); });
 document.getElementById('lb-next').addEventListener('click', e => { e.stopPropagation(); lightboxStep(1); });
+// Click on backdrop closes. Image is double-click to zoom (mouse) or pinch
+// (touch); single-click does not close so it doesn't conflict with double-click.
 document.getElementById('lightbox').addEventListener('click', e => {
-  // Click on background (not the image or controls) closes
-  if (e.target.id === 'lightbox' || e.target.id === 'lb-img') closeLightbox();
+  if (e.target.id === 'lightbox') closeLightbox();
+});
+let lbLastClick = 0;
+document.getElementById('lb-img').addEventListener('click', () => {
+  const now = Date.now();
+  if (now - lbLastClick < 280) {
+    if (lbZoom > 1) resetZoom(true);
+    else { lbZoom = 2.5; applyTransform(true); }
+  }
+  lbLastClick = now;
 });
 document.addEventListener('keydown', e => {
   if (document.getElementById('lightbox').classList.contains('hidden')) return;
   if (e.key === 'Escape') closeLightbox();
   if (e.key === 'ArrowLeft')  lightboxStep(-1);
   if (e.key === 'ArrowRight') lightboxStep(1);
+  if (e.key === '0') resetZoom(true);
 });
-// Touch swipe (mobile)
-let lbTouchStartX = 0;
-document.getElementById('lightbox').addEventListener('touchstart', e => { lbTouchStartX = e.touches[0].clientX; }, { passive: true });
-document.getElementById('lightbox').addEventListener('touchend', e => {
-  const dx = e.changedTouches[0].clientX - lbTouchStartX;
-  if (Math.abs(dx) > 50) lightboxStep(dx < 0 ? 1 : -1);
+
+// Touch: pinch to zoom, drag to pan when zoomed, swipe to navigate when not
+let lbTouchStartX = 0, lbTouchStartY = 0;
+const lbEl = document.getElementById('lightbox');
+lbEl.addEventListener('touchstart', e => {
+  if (e.touches.length === 2) {
+    pinchStartDist = pinchDistance(e.touches[0], e.touches[1]);
+    pinchStartZoom = lbZoom;
+  } else if (e.touches.length === 1) {
+    lbTouchStartX = e.touches[0].clientX;
+    lbTouchStartY = e.touches[0].clientY;
+    if (lbZoom > 1) {
+      panStartX = e.touches[0].clientX;
+      panStartY = e.touches[0].clientY;
+      panStartPanX = lbPanX;
+      panStartPanY = lbPanY;
+    }
+  }
+}, { passive: true });
+
+lbEl.addEventListener('touchmove', e => {
+  if (e.touches.length === 2) {
+    const newDist = pinchDistance(e.touches[0], e.touches[1]);
+    lbZoom = Math.max(1, Math.min(5, pinchStartZoom * (newDist / pinchStartDist)));
+    if (lbZoom <= 1.02) { lbZoom = 1; lbPanX = 0; lbPanY = 0; }
+    applyTransform(false);
+    e.preventDefault();
+  } else if (e.touches.length === 1 && lbZoom > 1) {
+    lbPanX = panStartPanX + (e.touches[0].clientX - panStartX);
+    lbPanY = panStartPanY + (e.touches[0].clientY - panStartY);
+    applyTransform(false);
+    e.preventDefault();
+  }
+}, { passive: false });
+
+lbEl.addEventListener('touchend', e => {
+  // Single-touch swipe to navigate only when not zoomed
+  if (lbZoom === 1 && e.changedTouches.length === 1) {
+    const dx = e.changedTouches[0].clientX - lbTouchStartX;
+    const dy = e.changedTouches[0].clientY - lbTouchStartY;
+    if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) lightboxStep(dx < 0 ? 1 : -1);
+  }
 }, { passive: true });
 document.getElementById('file-input').addEventListener('change', e => {
   if (e.target.files[0]) uploadPhoto(e.target.files[0]);
