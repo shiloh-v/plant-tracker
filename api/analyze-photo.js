@@ -40,14 +40,12 @@ const ANALYSIS_SCHEMA = {
     observations: {
       type: 'array',
       items: { type: 'string' },
-      maxItems: 5,
-      description: 'Visible details: leaf condition, growth, soil/pot. One sentence each.'
+      description: 'Visible details (max 5): leaf condition, growth, soil/pot. One sentence each.'
     },
     action_items: {
       type: 'array',
       items: { type: 'string' },
-      maxItems: 4,
-      description: 'Concrete next steps. Empty if no action needed.'
+      description: 'Concrete next steps (max 4). Empty array if no action needed.'
     }
   },
   required: ['id_check', 'health', 'observations', 'action_items'],
