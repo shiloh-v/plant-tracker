@@ -799,6 +799,11 @@ function openModal(id) {
 function renderCareSection(id) {
   const wrap = document.getElementById('care-section');
   if (!wrap) return;
+  // Reset history-open state when switching to a different plant
+  if (wrap.dataset.forPlant !== id) {
+    wrap.dataset.historyOpen = '0';
+    wrap.dataset.forPlant = id;
+  }
   const plant = PLANTS.find(p => p.id === id);
   if (!plant) { wrap.innerHTML = ''; return; }
 
@@ -845,23 +850,62 @@ function renderCareSection(id) {
       '</div>';
   };
 
+  const otherBtn = (kind, label) =>
+    '<button data-log-kind="' + kind + '" style="padding:5px 11px;border-radius:14px;border:1px solid var(--border);background:transparent;color:var(--muted);font-size:11px;font-weight:700;font-family:inherit;cursor:pointer">' + label + '</button>';
+
+  const events = (careEvents[id] || []).slice(0, 10);
+  const historyOpen = wrap.dataset.historyOpen === '1';
+  const historyHTML = events.length === 0 ? '' : (
+    '<div style="margin-top:10px"><button id="care-history-toggle" style="background:none;border:none;color:var(--green);font-size:11px;font-weight:700;font-family:inherit;cursor:pointer;text-decoration:underline;padding:0">' +
+      (historyOpen ? 'Hide history' : 'View history (' + (careEvents[id] || []).length + ')') +
+    '</button>' +
+    (historyOpen ?
+      '<div style="margin-top:8px;display:flex;flex-direction:column;gap:6px">' +
+        events.map(ev => {
+          const icon = { water:'💧', feed:'🍴', repot:'🌱', prune:'✂️', inspect:'👀', other:'•' }[ev.kind] || '•';
+          const when = new Date(ev.occurred_at);
+          const today = new Date(); today.setHours(0,0,0,0);
+          const evDay = new Date(when); evDay.setHours(0,0,0,0);
+          const days = Math.floor((today - evDay) / 86400000);
+          const rel = days === 0 ? 'Today' : days === 1 ? 'Yesterday' : days + ' days ago';
+          const abs = when.toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
+          return '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;padding:6px 9px;background:var(--soft);border-radius:8px;font-size:12px"><span><strong style="margin-right:6px">' + icon + '</strong>' + ev.kind + (ev.notes ? ' — <span style="color:var(--muted)">' + ev.notes.replace(/</g,'&lt;') + '</span>' : '') + '</span><span style="color:var(--muted);font-size:11px;white-space:nowrap" title="' + abs + '">' + rel + '</span></div>';
+        }).join('') +
+      '</div>'
+      : '') +
+    '</div>'
+  );
+
   wrap.innerHTML =
     '<div class="field-label">Care log</div>' +
     '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">' +
       cell('Water', 'water', water, plant.water_every_days) +
       cell('Feed',  'feed',  feed,  plant.feed_every_days) +
-    '</div>';
+    '</div>' +
+    '<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">' +
+      otherBtn('repot',   '🌱 Repot') +
+      otherBtn('prune',   '✂️ Prune') +
+      otherBtn('inspect', '👀 Inspect') +
+    '</div>' +
+    historyHTML;
 
   wrap.querySelectorAll('button[data-log-kind]').forEach(btn => {
     btn.addEventListener('click', async () => {
       const kind = btn.dataset.logKind;
+      const original = btn.innerHTML;
       btn.disabled = true;
-      btn.innerHTML = '<span class="spin"></span> Saving…';
+      btn.innerHTML = '<span class="spin"></span> Logging…';
       const ok = await logCareEvent(id, kind);
       btn.disabled = false;
       if (ok) renderCareSection(id);
-      else btn.textContent = (kind === 'water' ? '💧 Log water' : '🍴 Log feed');
+      else btn.innerHTML = original;
     });
+  });
+
+  const toggle = wrap.querySelector('#care-history-toggle');
+  if (toggle) toggle.addEventListener('click', () => {
+    wrap.dataset.historyOpen = wrap.dataset.historyOpen === '1' ? '0' : '1';
+    renderCareSection(id);
   });
 }
 
