@@ -361,7 +361,7 @@
 
 <!-- ── Supabase ── -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="https://cdn.jsdelivr.net/npm/exifr@7.1.3/dist/mini.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/exifr@7.1.3/dist/full.umd.js"></script>
 <script>
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1225,40 +1225,72 @@ async function uploadPhoto(file) {
   btn.innerHTML = '<span class="spin"></span> Uploading…';
   btn.disabled = true;
 
-  // Extract EXIF "date taken" BEFORE compress strips metadata. iOS often
-  // strips EXIF in the JPEG it produces from HEIC during upload, so we treat
-  // a missing date as "ask the user" instead of silently using today.
+  // Resolve "when was this photo taken" from every source the browser exposes:
+  //   1. Full EXIF parse — DateTimeOriginal / CreateDate / ModifyDate / GPSDateStamp
+  //   2. XMP — CreateDate / DateCreated / MetadataDate
+  //   3. file.lastModified — set by iOS to the photo's date-added-to-library in
+  //      many flows, though sometimes it's just the upload moment
+  // Source is shown in the toast so you can tell what landed.
   let ts = null;
+  let source = null;
   try {
     if (typeof exifr !== 'undefined') {
-      const exif = await exifr.parse(file, ['DateTimeOriginal', 'CreateDate', 'ModifyDate']);
-      console.log('[upload] EXIF parsed:', exif, 'for file:', file.name, file.type, file.size + ' bytes');
-      const date = exif?.DateTimeOriginal || exif?.CreateDate || exif?.ModifyDate;
-      if (date instanceof Date && !isNaN(date.getTime())) ts = date.getTime();
+      // No tag filter — pull everything we can, then pick a date field
+      const exif = await exifr.parse(file, { tiff: true, xmp: true, ifd0: true, exif: true, gps: true, mergeOutput: true });
+      console.log('[upload] EXIF full:', exif, 'for', file.name, file.type, file.size + 'B, lastModified=', file.lastModified ? new Date(file.lastModified).toISOString() : '(none)');
+      if (exif) {
+        const candidates = [
+          ['DateTimeOriginal',   exif.DateTimeOriginal],
+          ['CreateDate',         exif.CreateDate],
+          ['DateTimeDigitized',  exif.DateTimeDigitized],
+          ['ModifyDate',         exif.ModifyDate],
+          ['DateCreated',        exif.DateCreated],
+          ['MetadataDate',       exif.MetadataDate],
+          ['GPSDateStamp',       exif.GPSDateStamp],
+        ];
+        for (const [tag, val] of candidates) {
+          let d = val instanceof Date ? val : (typeof val === 'string' ? new Date(val) : null);
+          if (d && !isNaN(d.getTime()) && d.getFullYear() > 1990 && d.getTime() <= Date.now() + 86400000) {
+            ts = d.getTime();
+            source = 'EXIF ' + tag;
+            break;
+          }
+        }
+      }
     }
   } catch (e) {
     console.warn('[upload] EXIF parse threw:', e.message);
   }
 
+  // Fallback: file.lastModified — but only trust it if it's older than ~30 min
+  // (anything newer is almost certainly when iOS materialized the file for upload,
+  // not when the photo was taken)
+  if (!ts && file.lastModified) {
+    const age = Date.now() - file.lastModified;
+    if (age > 1800000) {
+      ts = file.lastModified;
+      source = 'file.lastModified';
+    } else {
+      console.log('[upload] lastModified is too recent (' + Math.round(age/1000) + 's ago) — ignoring');
+    }
+  }
+
   if (ts) {
-    showToast('Photo date from EXIF: ' + new Date(ts).toLocaleDateString());
+    const since = Math.floor((Date.now() - ts) / 86400000);
+    showToast('Date from ' + source + ': ' + new Date(ts).toLocaleDateString() + ' (' + (since === 0 ? 'today' : since + 'd ago') + ')');
   } else {
-    // EXIF missing — let the user pick. Default = file.lastModified if it
-    // looks like a real "date taken" (more than a day old), otherwise today.
-    const lm = file.lastModified || 0;
-    const lmIsOld = (Date.now() - lm) > 86400000;
-    const defaultDate = lmIsOld ? new Date(lm) : new Date();
+    // Truly no date anywhere — prompt as last resort
     const picked = await promptDate(
-      'No EXIF date in this photo (' + (file.type || 'unknown type') + '). Pick the day it was taken.',
-      defaultDate
+      'This photo has no date metadata (' + (file.type || 'unknown') + '). Pick the day it was taken.',
+      new Date()
     );
     if (picked === null) {
-      // User cancelled — abort upload
       btn.innerHTML = photoURLs[selectedId] ? '📷 Update photo' : '📷 Add photo';
       btn.disabled = false;
       return;
     }
     ts = picked.getTime();
+    source = 'manual';
     showToast('Using ' + picked.toLocaleDateString() + ' for this photo');
   }
 
