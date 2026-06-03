@@ -31,7 +31,6 @@
   .header-inner { max-width: 860px; margin: 0 auto; }
   .header-top { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; }
   .header-top h1 { font-family: 'Fraunces', serif; font-size: 20px; font-weight: 700; letter-spacing: -.02em; }
-  #photo-count { font-size: 11px; opacity: .7; }
   #search { width: 100%; padding: 8px 14px; border-radius: 20px; border: none; background: rgba(255,255,255,.18); color: white; font-size: 14px; font-family: inherit; outline: none; margin-bottom: 10px; }
   #search::placeholder { color: rgba(255,255,255,.55); }
   #tabs { display: flex; gap: 6px; }
@@ -134,7 +133,6 @@
     <div class="header-top">
       <h1>🌿 Shiloh's Plants</h1>
       <div style="display:flex;align-items:center;gap:8px">
-        <span id="photo-count"></span>
         <button id="add-plant-btn" title="Add a new plant" style="background:var(--cream);color:var(--green);border:none;border-radius:16px;font-size:13px;font-weight:700;padding:4px 11px;cursor:pointer;font-family:inherit;white-space:nowrap">+ Add</button>
         <button id="export-btn" style="background:rgba(255,255,255,.2);border:none;border-radius:16px;color:white;font-size:11px;font-weight:700;padding:4px 10px;cursor:pointer;font-family:inherit;white-space:nowrap">⬇ Export</button>
       </div>
@@ -179,6 +177,7 @@
     </div>
     <div class="meta-grid" id="meta-grid"></div>
     <div id="toxic-warn" class="toxic-warn" style="display:none">☠ TOXIC TO DOGS — keep in dog-free area at all times</div>
+    <div id="care-section" class="field-wrap"></div>
     <div class="field-wrap">
       <div class="field-label">Current Status</div>
       <div id="status-display" class="status-display"></div>
@@ -262,6 +261,20 @@
       </label>
     </div>
 
+    <div class="field-wrap">
+      <div class="field-label">Care cadence (days between, blank = no schedule)</div>
+      <div style="display:flex;gap:8px">
+        <div style="flex:1">
+          <input type="number" id="f-water-every" min="1" max="365" placeholder="Water every…" style="width:100%;padding:9px 11px;border-radius:10px;border:1.5px solid var(--border);font-size:13px;font-family:inherit;outline:none;background:white">
+          <div style="font-size:10px;color:var(--muted);margin-top:3px;text-align:center">💧 days</div>
+        </div>
+        <div style="flex:1">
+          <input type="number" id="f-feed-every" min="1" max="365" placeholder="Feed every…" style="width:100%;padding:9px 11px;border-radius:10px;border:1.5px solid var(--border);font-size:13px;font-family:inherit;outline:none;background:white">
+          <div style="font-size:10px;color:var(--muted);margin-top:3px;text-align:center">🍴 days</div>
+        </div>
+      </div>
+    </div>
+
     <div class="field-wrap" id="f-status-wrap">
       <div class="field-label">Initial status</div>
       <textarea id="f-status" rows="2" style="width:100%;padding:9px 11px;border-radius:10px;border:1.5px solid var(--border);font-size:13px;font-family:inherit;outline:none;background:white;resize:vertical" placeholder="e.g. Newly acquired — establishing"></textarea>
@@ -307,6 +320,7 @@ let PLANTS = [];
 let overrides = {};      // id -> {status, notes, photo_ts, updated_at}
 let photoURLs = {};      // id -> latest public URL string (with cache-bust)
 let photoHistory = {};   // id -> [{url, ts, label}] newest-first
+let careEvents = {};     // plant_id -> events array (sorted newest-first)
 let selectedId = null;
 let tab = 'all';
 let locFilter = 'all';
@@ -489,7 +503,10 @@ async function loadData() {
 
   loadingEl.style.display = 'none';
   renderGrid();
-  updatePhotoCount();
+
+  // Care events — load separately so a missing table (pre-migration-002) or
+  // RLS hiccup doesn't break the main app.
+  loadCareEvents();
   } catch (err) {
     console.error('loadData failed:', err);
     const msg = String(err.message || 'Network error').replace(/</g, '&lt;');
@@ -500,17 +517,63 @@ async function loadData() {
       '<div style="font-size:11px;color:var(--muted);margin-top:14px">Showing plant list without your saved status/photos.</div>';
     document.getElementById('retry-btn').addEventListener('click', loadData);
     renderGrid();
-    updatePhotoCount();
   }
+}
+
+// ── Care events ─────────────────────────────────────────────────────────────
+async function loadCareEvents() {
+  const { data, error } = await sb.from('care_events')
+    .select('id, plant_id, kind, occurred_at, notes')
+    .order('occurred_at', { ascending: false })
+    .limit(2000);
+  if (error) {
+    // Most likely the table doesn't exist yet (migration 002 not run).
+    // Log and move on — app still works without care log.
+    console.warn('care_events unavailable:', error.message);
+    careEvents = {};
+    return;
+  }
+  careEvents = {};
+  (data || []).forEach(e => {
+    (careEvents[e.plant_id] = careEvents[e.plant_id] || []).push(e);
+  });
+  // Re-render anything currently visible that depends on care state
+  if (selectedId) renderCareSection(selectedId);
+  renderGrid();
+}
+
+function lastEvent(plantId, kind) {
+  const list = careEvents[plantId] || [];
+  return list.find(e => e.kind === kind);
+}
+
+// Returns { days, dueIn } where days = since last event (or null), dueIn = days
+// until next due (negative if overdue, null if no cadence set).
+function careStatus(plant, kind, cadence) {
+  const last = lastEvent(plant.id, kind);
+  if (!last) return { days: null, dueIn: cadence ? -Infinity : null, lastDate: null };
+  const lastTs = new Date(last.occurred_at).getTime();
+  const now = Date.now();
+  const days = Math.floor((now - lastTs) / 86400000);
+  const dueIn = cadence ? cadence - days : null;
+  return { days, dueIn, lastDate: new Date(last.occurred_at) };
+}
+
+async function logCareEvent(plantId, kind) {
+  const row = { plant_id: plantId, kind, occurred_at: new Date().toISOString() };
+  const { data, error } = await withKey('log ' + kind, () =>
+    sb.from('care_events').insert(row).select().single()
+  );
+  if (error) {
+    alert('Couldn\'t log: ' + error.message);
+    return false;
+  }
+  (careEvents[plantId] = careEvents[plantId] || []).unshift(data);
+  return true;
 }
 
 // ── Render helpers ──────────────────────────────────────────────────────────
 function getStatus(plant) { return overrides[plant.id]?.status || plant.status; }
-
-function updatePhotoCount() {
-  const n = Object.keys(photoURLs).length;
-  document.getElementById('photo-count').textContent = `${n}/${PLANTS.length} photos`;
-}
 
 function getFilteredPlants() {
   const q = document.getElementById('search').value.trim().toLowerCase();
@@ -609,6 +672,7 @@ function openModal(id) {
   document.getElementById('notes-edit').value = ov?.notes || '';
 
   setEditMode(false);
+  renderCareSection(id);
 
   const updated = ov?.updated_at
     ? `Last updated ${new Date(ov.updated_at).toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})}`
@@ -617,6 +681,76 @@ function openModal(id) {
 
   document.getElementById('overlay').classList.remove('hidden');
   document.body.style.overflow = 'hidden';
+}
+
+// Renders the care log strip: last watered / last fed plus quick log buttons.
+function renderCareSection(id) {
+  const wrap = document.getElementById('care-section');
+  if (!wrap) return;
+  const plant = PLANTS.find(p => p.id === id);
+  if (!plant) { wrap.innerHTML = ''; return; }
+
+  const water = careStatus(plant, 'water', plant.water_every_days);
+  const feed  = careStatus(plant, 'feed',  plant.feed_every_days);
+
+  const cell = (label, kind, st, cadence) => {
+    let badge = '';
+    let line = 'No log yet';
+    if (st.days != null) {
+      line = st.days === 0 ? 'Today'
+            : st.days === 1 ? 'Yesterday'
+            : st.days + ' days ago';
+    }
+    let due = '';
+    if (cadence) {
+      if (st.dueIn === null || st.dueIn === -Infinity) {
+        due = 'Due now';
+        badge = 'background:var(--danger-bg);color:var(--danger-fg)';
+      } else if (st.dueIn < 0) {
+        due = Math.abs(st.dueIn) + 'd overdue';
+        badge = 'background:var(--danger-bg);color:var(--danger-fg)';
+      } else if (st.dueIn === 0) {
+        due = 'Due today';
+        badge = 'background:var(--warn-bg);color:var(--warn-fg)';
+      } else if (st.dueIn <= 2) {
+        due = 'Due in ' + st.dueIn + 'd';
+        badge = 'background:var(--warn-bg);color:var(--warn-fg)';
+      } else {
+        due = 'Due in ' + st.dueIn + 'd';
+        badge = 'background:var(--good-bg);color:var(--good-fg)';
+      }
+    }
+    return '' +
+      '<div style="background:#f0ebe0;border-radius:10px;padding:9px 11px;display:flex;flex-direction:column;gap:4px">' +
+        '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px">' +
+          '<div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em">' + label + '</div>' +
+          (due ? '<span style="' + badge + ';font-size:10px;font-weight:700;padding:2px 7px;border-radius:6px;white-space:nowrap">' + due + '</span>' : '') +
+        '</div>' +
+        '<div style="font-size:13px;font-weight:600">' + line + '</div>' +
+        '<button data-log-kind="' + kind + '" style="margin-top:4px;padding:6px 10px;border-radius:8px;border:1.5px solid var(--green);background:white;color:var(--green);font-size:12px;font-weight:700;font-family:inherit;cursor:pointer">' +
+          (kind === 'water' ? '💧 Log water' : '🍴 Log feed') +
+        '</button>' +
+      '</div>';
+  };
+
+  wrap.innerHTML =
+    '<div class="field-label">Care log</div>' +
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">' +
+      cell('Water', 'water', water, plant.water_every_days) +
+      cell('Feed',  'feed',  feed,  plant.feed_every_days) +
+    '</div>';
+
+  wrap.querySelectorAll('button[data-log-kind]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const kind = btn.dataset.logKind;
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spin"></span> Saving…';
+      const ok = await logCareEvent(id, kind);
+      btn.disabled = false;
+      if (ok) renderCareSection(id);
+      else btn.textContent = (kind === 'water' ? '💧 Log water' : '🍴 Log feed');
+    });
+  });
 }
 
 function closeModal() {
@@ -708,7 +842,6 @@ async function uploadPhoto(file) {
     dlBtn.style.display = 'block';
     dlBtn.onclick = () => downloadPhoto(selectedId);
     renderHistoryStrip(selectedId);
-    updatePhotoCount();
     renderGrid();
   } else {
     alert('Upload failed: ' + error.message);
@@ -847,6 +980,8 @@ function openPlantForm(mode, plant) {
   document.getElementById('f-loc').value    = plant?.loc  || '';
   document.getElementById('f-pot').value    = plant?.pot  || '';
   document.getElementById('f-toxic').checked = !!plant?.toxic;
+  document.getElementById('f-water-every').value = plant?.water_every_days ?? '';
+  document.getElementById('f-feed-every').value  = plant?.feed_every_days  ?? '';
   document.getElementById('f-status').value = plant?.status || '';
 
   // Initial-status field only matters for new plants; hide on edit
@@ -881,6 +1016,10 @@ async function savePlant() {
   const loc   = document.getElementById('f-loc').value.trim();
   const pot   = document.getElementById('f-pot').value.trim() || null;
   const toxic = document.getElementById('f-toxic').checked;
+  const water_raw = document.getElementById('f-water-every').value.trim();
+  const feed_raw  = document.getElementById('f-feed-every').value.trim();
+  const water_every_days = water_raw ? parseInt(water_raw, 10) : null;
+  const feed_every_days  = feed_raw  ? parseInt(feed_raw,  10) : null;
   const status = document.getElementById('f-status').value.trim() || null;
 
   if (!id || !name || !type || !loc) {
@@ -895,7 +1034,7 @@ async function savePlant() {
   btn.innerHTML = '<span class="spin"></span> Saving…';
   btn.disabled = true;
 
-  const row = { id, name, sub, sci, type, loc, pot, toxic, archived_at: null };
+  const row = { id, name, sub, sci, type, loc, pot, toxic, water_every_days, feed_every_days, archived_at: null };
   let res;
   if (formMode === 'add') {
     row.sort_order = PLANTS.length;   // append at end
