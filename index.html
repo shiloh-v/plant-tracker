@@ -360,7 +360,7 @@
 
 <!-- ── Supabase ── -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="https://cdn.jsdelivr.net/npm/exifr@7.1.3/dist/lite.umd.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/exifr@7.1.3/dist/mini.umd.js"></script>
 <script>
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -492,6 +492,18 @@ function statusTheme(s) {
 }
 
 // ── Photo URL helper ────────────────────────────────────────────────────────
+// Brief toast at the bottom of the screen for transient feedback
+function showToast(message, ms) {
+  const existing = document.getElementById('toast');
+  if (existing) existing.remove();
+  const t = document.createElement('div');
+  t.id = 'toast';
+  t.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:rgba(30,26,18,.92);color:white;padding:10px 16px;border-radius:22px;font-size:13px;font-weight:600;font-family:inherit;z-index:400;max-width:90vw;text-align:center;box-shadow:0 4px 14px rgba(0,0,0,.35)';
+  t.textContent = message;
+  document.body.appendChild(t);
+  setTimeout(() => { if (t.parentNode) t.remove(); }, ms || 3200);
+}
+
 // Parse the embedded ms-timestamp out of a photo filename like "1717387200000.jpg"
 // or "1717387200000-2.jpg" (collision suffix). Returns null if filename doesn't match.
 function tsFromFilename(name) {
@@ -1178,14 +1190,26 @@ async function uploadPhoto(file) {
   // Extract EXIF "date taken" BEFORE compress strips metadata. Falls back to
   // upload time if EXIF is missing (screenshots, edited files, etc.).
   let ts = null;
+  let exifDebug = null;
   try {
     if (typeof exifr !== 'undefined') {
       const exif = await exifr.parse(file, ['DateTimeOriginal', 'CreateDate', 'ModifyDate']);
+      console.log('[upload] EXIF parsed:', exif, 'for file:', file.name, file.type, file.size + ' bytes');
+      exifDebug = exif;
       const date = exif?.DateTimeOriginal || exif?.CreateDate || exif?.ModifyDate;
       if (date instanceof Date && !isNaN(date.getTime())) ts = date.getTime();
+    } else {
+      console.warn('[upload] exifr not loaded');
     }
-  } catch (e) { /* no EXIF — fall through */ }
-  if (!ts) ts = Date.now();
+  } catch (e) {
+    console.warn('[upload] EXIF parse threw:', e.message);
+  }
+  if (!ts) {
+    ts = Date.now();
+    showToast('No EXIF date in this photo — using today (' + file.type + ')');
+  } else {
+    showToast('Photo date from EXIF: ' + new Date(ts).toLocaleDateString());
+  }
 
   const blob = await compress(file);
 
