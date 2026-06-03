@@ -17,21 +17,34 @@
 
 
 -- ── plants table ──────────────────────────────────────────────────────────────
-create table if not exists public.plants (
-  id           text primary key,            -- keep your 'i01','o67' scheme
-  name         text not null,
-  sub          text,
-  sci          text,
-  type         text not null check (type in ('indoor','outdoor')),
-  loc          text not null,
-  pot          text,
-  status       text,                        -- initial/seed status
-  toxic        boolean not null default false,
-  sort_order   int,                         -- nulls last; lower = earlier
-  archived_at  timestamptz,                 -- soft-delete; null = active
-  created_at   timestamptz not null default now(),
-  updated_at   timestamptz not null default now()
-);
+-- Defined column-by-column with ADD COLUMN IF NOT EXISTS so this is safe to
+-- run whether the table is new, missing, or partially set up from earlier.
+create table if not exists public.plants (id text primary key);
+
+alter table public.plants add column if not exists name        text;
+alter table public.plants add column if not exists sub         text;
+alter table public.plants add column if not exists sci         text;
+alter table public.plants add column if not exists type        text;
+alter table public.plants add column if not exists loc         text;
+alter table public.plants add column if not exists pot         text;
+alter table public.plants add column if not exists status      text;
+alter table public.plants add column if not exists toxic       boolean not null default false;
+alter table public.plants add column if not exists sort_order  int;
+alter table public.plants add column if not exists archived_at timestamptz;
+alter table public.plants add column if not exists created_at  timestamptz not null default now();
+alter table public.plants add column if not exists updated_at  timestamptz not null default now();
+
+-- Make name/type/loc required, and constrain type values
+alter table public.plants alter column name set not null;
+alter table public.plants alter column type set not null;
+alter table public.plants alter column loc  set not null;
+do $$ begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'plants_type_check'
+  ) then
+    alter table public.plants add constraint plants_type_check check (type in ('indoor','outdoor'));
+  end if;
+end $$;
 
 create index if not exists plants_type_idx     on public.plants (type);
 create index if not exists plants_loc_idx      on public.plants (loc);
