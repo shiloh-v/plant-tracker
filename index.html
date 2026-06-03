@@ -16,6 +16,9 @@
     --bg: #f4f0e8;
     --border: #e0d8cc;
     --muted: #7a7060;
+    --text: #1e1a12;
+    --soft: #f0ebe0;        /* meta cells, notes display, close button */
+    --photo-bg: #e8e2d5;    /* photo placeholders */
     --warn-bg: #fef3c7; --warn-fg: #b45309;
     --danger-bg: #fee2e2; --danger-fg: #b91c1c;
     --good-bg: #dcfce7; --good-fg: #15803d;
@@ -23,8 +26,31 @@
     --purple-bg: #ede9fe; --purple-fg: #6d28d9;
     --sky-bg: #e0f2fe; --sky-fg: #0369a1;
   }
+  /* Dark mode: override inline "background:white" on inputs/buttons throughout */
+  body.dark input:not([type="checkbox"]):not([type="radio"]),
+  body.dark textarea,
+  body.dark select,
+  body.dark [style*="background:white"] { background: var(--cream) !important; color: var(--text); border-color: var(--border) !important; }
+  body.dark [style*="background:white"][style*="color:var(--green)"] { color: var(--green) !important; }
+  body.dark img.hist-thumb-img, body.dark .hist-thumb img { border-color: var(--border); }
+  body.dark {
+    --green: #5fa554;
+    --cream: #2a241e;
+    --bg: #1a1612;
+    --border: #3a342e;
+    --muted: #9a907e;
+    --text: #e8e2d5;
+    --soft: #221c16;
+    --photo-bg: #2a241e;
+    --warn-bg: #4a3915; --warn-fg: #f5d061;
+    --danger-bg: #4a1f1f; --danger-fg: #fca5a5;
+    --good-bg: #1f3a23; --good-fg: #86efac;
+    --info-bg: #1f2f4a; --info-fg: #93c5fd;
+    --purple-bg: #2f1f4a; --purple-fg: #c4b5fd;
+    --sky-bg: #1f364a; --sky-fg: #7dd3fc;
+  }
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
-  html, body { height: 100%; font-family: 'Nunito', sans-serif; background: var(--bg); color: #1e1a12; overscroll-behavior: none; }
+  html, body { height: 100%; font-family: 'Nunito', sans-serif; background: var(--bg); color: var(--text); overscroll-behavior: none; }
 
   /* ── Header ── */
   #header { background: var(--green); color: white; padding: 16px 14px 12px; position: sticky; top: 0; z-index: 30; box-shadow: 0 2px 12px rgba(0,0,0,.22); }
@@ -51,7 +77,7 @@
   /* ── Cards ── */
   .card { background: var(--cream); border-radius: 14px; border: 1px solid var(--border); overflow: hidden; box-shadow: 0 2px 6px rgba(0,0,0,.05); cursor: pointer; transition: transform .12s, box-shadow .12s; -webkit-user-select: none; }
   .card:active { transform: scale(.97); }
-  .card-photo { height: 120px; background: #e8e2d5; position: relative; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+  .card-photo { height: 120px; background: var(--photo-bg); position: relative; overflow: hidden; display: flex; align-items: center; justify-content: center; }
   .card-photo img { width: 100%; height: 100%; object-fit: cover; }
   .card-photo .placeholder { font-size: 30px; opacity: .45; }
   .card-photo .add-hint { position: absolute; bottom: 5px; right: 5px; background: rgba(0,0,0,.35); color: white; font-size: 9px; padding: 2px 5px; border-radius: 5px; font-family: inherit; }
@@ -60,8 +86,8 @@
   .card-name { font-family: 'Fraunces', serif; font-size: 12.5px; font-weight: 700; line-height: 1.25; margin-bottom: 2px; }
   .card-sub { font-size: 10px; color: var(--muted); margin-bottom: 2px; line-height: 1.2; }
   .card-loc { font-size: 10px; color: var(--muted); margin-bottom: 5px; }
-  .status-pill { font-size: 9.5px; font-weight: 700; padding: 2px 7px; border-radius: 8px; display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .card-updated { font-size: 9px; color: #aaa; margin-top: 3px; }
+  .status-pill { font-size: 9.5px; font-weight: 700; padding: 3px 7px; border-radius: 8px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.25; word-break: break-word; }
+  .card-updated { font-size: 9px; color: var(--muted); opacity: .65; margin-top: 3px; }
 
   /* ── Overlay + Modal ── */
   #overlay { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 100; display: flex; align-items: flex-end; justify-content: center; }
@@ -72,10 +98,10 @@
   .modal-name { font-family: 'Fraunces', serif; font-size: 21px; font-weight: 700; line-height: 1.15; }
   .modal-sub { font-size: 13px; color: var(--muted); margin-top: 2px; }
   .modal-sci { font-size: 12px; color: var(--muted); font-style: italic; margin-top: 1px; }
-  #close-btn { background: #f0ebe0; border: none; border-radius: 50%; width: 30px; height: 30px; font-size: 18px; cursor: pointer; color: var(--muted); display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-left: 10px; font-family: inherit; }
+  #close-btn { background: var(--soft); border: none; border-radius: 50%; width: 30px; height: 30px; font-size: 18px; cursor: pointer; color: var(--muted); display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-left: 10px; font-family: inherit; }
 
   /* Photo area */
-  #photo-wrap { height: 240px; background: #e8e2d5; border-radius: 14px; overflow: hidden; display: flex; align-items: center; justify-content: center; position: relative; cursor: pointer; margin-bottom: 14px; }
+  #photo-wrap { height: 240px; background: var(--photo-bg); border-radius: 14px; overflow: hidden; display: flex; align-items: center; justify-content: center; position: relative; cursor: pointer; margin-bottom: 14px; }
   #photo-wrap img { width: 100%; height: 100%; object-fit: cover; }
   #photo-wrap .no-photo { text-align: center; color: var(--muted); }
   #photo-wrap .no-photo span { font-size: 52px; display: block; }
@@ -84,7 +110,7 @@
 
   /* Meta grid */
   .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; margin-bottom: 12px; }
-  .meta-cell { background: #f0ebe0; border-radius: 10px; padding: 8px 10px; }
+  .meta-cell { background: var(--soft); border-radius: 10px; padding: 8px 10px; }
   .meta-label { font-size: 9px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 3px; }
   .meta-val { font-size: 12px; line-height: 1.3; }
 
@@ -95,14 +121,14 @@
   .field-label { font-size: 10px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .07em; margin-bottom: 6px; }
   .field-wrap { margin-bottom: 12px; }
   .status-display { padding: 9px 12px; border-radius: 10px; font-size: 13px; font-weight: 600; line-height: 1.4; }
-  .notes-display { padding: 9px 12px; background: #f0ebe0; border-radius: 10px; font-size: 13px; min-height: 48px; line-height: 1.5; color: var(--muted); }
-  .notes-display.has-notes { color: #1e1a12; }
+  .notes-display { padding: 9px 12px; background: var(--soft); border-radius: 10px; font-size: 13px; min-height: 48px; line-height: 1.5; color: var(--muted); }
+  .notes-display.has-notes { color: var(--text); }
   textarea { width: 100%; padding: 9px 11px; border-radius: 10px; border: 1.5px solid var(--green); font-size: 13px; outline: none; resize: vertical; font-family: inherit; background: white; }
 
   /* Buttons */
   .btn-row { display: flex; gap: 8px; margin-bottom: 8px; }
   .btn { flex: 1; padding: 11px; border-radius: 12px; font-size: 14px; font-weight: 700; cursor: pointer; font-family: inherit; border: none; }
-  .btn-outline { background: white; border: 1.5px solid var(--border) !important; color: #1e1a12; }
+  .btn-outline { background: var(--cream); border: 1.5px solid var(--border) !important; color: var(--text); }
   .btn-primary { background: var(--green); color: white; }
   .btn-edit { width: 100%; padding: 11px; border-radius: 12px; font-size: 14px; font-weight: 700; cursor: pointer; font-family: inherit; background: white; border: 1.5px solid var(--green); color: var(--green); }
   .modal-updated { font-size: 11px; color: var(--muted); text-align: center; margin-top: 8px; }
@@ -134,6 +160,7 @@
       <h1>🌿 Shiloh's Plants</h1>
       <div style="display:flex;align-items:center;gap:8px">
         <button id="add-plant-btn" title="Add a new plant" style="background:var(--cream);color:var(--green);border:none;border-radius:16px;font-size:13px;font-weight:700;padding:4px 11px;cursor:pointer;font-family:inherit;white-space:nowrap">+ Add</button>
+        <button id="theme-btn" title="Toggle dark mode" style="background:rgba(255,255,255,.18);border:none;border-radius:50%;width:28px;height:28px;font-size:14px;cursor:pointer;font-family:inherit;line-height:1;padding:0">🌙</button>
         <button id="export-btn" style="background:rgba(255,255,255,.2);border:none;border-radius:16px;color:white;font-size:11px;font-weight:700;padding:4px 10px;cursor:pointer;font-family:inherit;white-space:nowrap">⬇ Export</button>
       </div>
     </div>
@@ -152,7 +179,15 @@
 
 <!-- ── Main grid ── -->
 <div id="grid-wrap">
-  <div id="count-label"></div>
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px;flex-wrap:wrap">
+    <div id="count-label"></div>
+    <select id="sort-select" style="background:var(--cream);border:1px solid var(--border);border-radius:14px;font-size:11px;font-weight:700;color:var(--muted);padding:4px 22px 4px 10px;font-family:inherit;cursor:pointer;-webkit-appearance:none;appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2210%22 height=%2210%22 viewBox=%220 0 10 10%22><path fill=%22%237a7060%22 d=%22M1 3l4 4 4-4z%22/></svg>');background-repeat:no-repeat;background-position:right 7px center">
+      <option value="default">Default order</option>
+      <option value="name">Name A-Z</option>
+      <option value="updated">Recently updated</option>
+      <option value="water-oldest">Water: oldest first</option>
+    </select>
+  </div>
   <div id="loading">Loading your garden…</div>
   <div id="grid"></div>
 </div>
@@ -194,11 +229,11 @@
       <button class="btn btn-primary" id="save-btn">Save changes</button>
     </div>
     <button class="btn-edit" id="edit-btn">✏️ Edit status &amp; notes</button>
-    <div style="display:flex;gap:8px;margin-top:8px">
-      <button class="btn-edit" id="edit-details-btn" style="flex:1">✎ Edit details</button>
-      <button class="btn-edit" id="archive-btn" style="flex:1;border-color:#fca5a5;color:var(--danger-fg)">🗄 Archive</button>
-    </div>
+    <button class="btn-edit" id="edit-details-btn" style="margin-top:8px">✎ Edit details</button>
     <div class="modal-updated" id="modal-updated"></div>
+    <div style="text-align:center;margin-top:14px">
+      <button id="archive-btn" style="background:none;border:none;color:var(--muted);font-size:11px;font-family:inherit;cursor:pointer;text-decoration:underline;padding:4px 8px">Archive this plant</button>
+    </div>
   </div>
 </div>
 
@@ -208,7 +243,7 @@
     <div class="modal-handle"></div>
     <div class="modal-title-row">
       <div class="modal-name" id="form-title">Add plant</div>
-      <button id="form-close" style="background:#f0ebe0;border:none;border-radius:50%;width:30px;height:30px;font-size:18px;cursor:pointer;color:var(--muted);font-family:inherit">×</button>
+      <button id="form-close" style="background:var(--soft);border:none;border-radius:50%;width:30px;height:30px;font-size:18px;cursor:pointer;color:var(--muted);font-family:inherit">×</button>
     </div>
 
     <div class="field-wrap">
@@ -325,6 +360,7 @@ let careEvents = {};     // plant_id -> events array (sorted newest-first)
 let selectedId = null;
 let tab = 'all';
 let locFilter = 'all';
+let sortBy = localStorage.getItem('sortBy') || 'default';
 let editMode = false;
 
 // ── Passphrase prompt + write retry ─────────────────────────────────────────
@@ -620,13 +656,37 @@ function tabMatches(p) {
 
 function getFilteredPlants() {
   const q = document.getElementById('search').value.trim().toLowerCase();
-  return PLANTS.filter(p => {
+  const list = PLANTS.filter(p => {
     if (p.archived_at) return false;
     if (!tabMatches(p)) return false;
     if (locFilter !== 'all' && p.loc !== locFilter) return false;
     if (q) return p.name.toLowerCase().includes(q) || (p.sci||'').toLowerCase().includes(q) || (p.sub||'').toLowerCase().includes(q) || p.loc.toLowerCase().includes(q);
     return true;
   });
+  return sortPlants(list);
+}
+
+function sortPlants(list) {
+  const arr = list.slice();
+  if (sortBy === 'name') {
+    arr.sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+  } else if (sortBy === 'updated') {
+    // most recent first; uses override updated_at when present, else plant updated_at
+    const t = p => Math.max(
+      new Date(overrides[p.id]?.updated_at || 0).getTime(),
+      new Date(p.updated_at || 0).getTime()
+    );
+    arr.sort((a, b) => t(b) - t(a));
+  } else if (sortBy === 'water-oldest') {
+    // oldest watered first (most overdue at top); never watered = top
+    const w = p => {
+      const last = lastEvent(p.id, 'water');
+      return last ? new Date(last.occurred_at).getTime() : 0;
+    };
+    arr.sort((a, b) => w(a) - w(b));
+  }
+  // 'default' = keep insertion order (already sorted by sort_order from loadData)
+  return arr;
 }
 
 function renderLocPills() {
@@ -669,7 +729,7 @@ function renderGrid() {
           <div class="card-name">${p.name}</div>
           ${p.sub ? `<div class="card-sub">${p.sub}</div>` : ''}
           <div class="card-loc">${p.loc}</div>
-          <span class="status-pill" style="color:${color};background:${bg}">${st.replace(/[☠⚠⭐]/g,'').trim().slice(0,38)}${st.length>38?'…':''}</span>
+          <span class="status-pill" style="color:${color};background:${bg}">${st.replace(/[☠⚠⭐]/g,'').trim()}</span>
           ${ov?.updated_at ? `<div class="card-updated">Updated ${new Date(ov.updated_at).toLocaleDateString('en-US',{month:'short',day:'numeric'})}</div>` : ''}
         </div>
       </div>`;
@@ -773,7 +833,7 @@ function renderCareSection(id) {
       }
     }
     return '' +
-      '<div style="background:#f0ebe0;border-radius:10px;padding:9px 11px;display:flex;flex-direction:column;gap:4px">' +
+      '<div style="background:var(--soft);border-radius:10px;padding:9px 11px;display:flex;flex-direction:column;gap:4px">' +
         '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px">' +
           '<div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em">' + label + '</div>' +
           (due ? '<span style="' + badge + ';font-size:10px;font-weight:700;padding:2px 7px;border-radius:6px;white-space:nowrap">' + due + '</span>' : '') +
@@ -1130,7 +1190,7 @@ async function archivePlant() {
 
   if (error) {
     alert('Archive failed: ' + error.message);
-    btn.innerHTML = '🗄 Archive';
+    btn.innerHTML = 'Archive this plant';
     btn.disabled = false;
     return;
   }
@@ -1156,6 +1216,28 @@ document.getElementById('form-overlay').addEventListener('click', e => {
 document.getElementById('search').addEventListener('input', () => {
   locFilter = 'all';
   renderGrid();
+});
+
+// Restore persisted sort and wire change handler
+document.getElementById('sort-select').value = sortBy;
+document.getElementById('sort-select').addEventListener('change', e => {
+  sortBy = e.target.value;
+  localStorage.setItem('sortBy', sortBy);
+  renderGrid();
+});
+
+// Theme toggle (dark mode persists in localStorage)
+function applyTheme(t) {
+  document.body.classList.toggle('dark', t === 'dark');
+  document.getElementById('theme-btn').textContent = t === 'dark' ? '☀️' : '🌙';
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute('content', t === 'dark' ? '#1a1612' : '#2d5a27');
+}
+applyTheme(localStorage.getItem('theme') || 'light');
+document.getElementById('theme-btn').addEventListener('click', () => {
+  const next = document.body.classList.contains('dark') ? 'light' : 'dark';
+  localStorage.setItem('theme', next);
+  applyTheme(next);
 });
 
 document.getElementById('tabs').addEventListener('click', e => {
