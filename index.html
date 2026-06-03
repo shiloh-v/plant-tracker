@@ -350,6 +350,7 @@
 <!-- ── Photo lightbox ── -->
 <div id="lightbox" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.95);z-index:300;display:flex;align-items:center;justify-content:center;flex-direction:column;touch-action:pan-y">
   <button id="lb-close" style="position:absolute;top:14px;right:14px;background:rgba(255,255,255,.15);border:none;border-radius:50%;width:38px;height:38px;font-size:22px;color:white;cursor:pointer;font-family:inherit;line-height:1;padding:0;z-index:2">×</button>
+  <button id="lb-delete" title="Delete this photo" style="position:absolute;top:14px;left:14px;background:rgba(185,28,28,.7);border:none;border-radius:50%;width:38px;height:38px;font-size:18px;cursor:pointer;font-family:inherit;line-height:1;padding:0;z-index:2">🗑</button>
   <button id="lb-prev" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);background:rgba(255,255,255,.15);border:none;border-radius:50%;width:44px;height:44px;font-size:24px;color:white;cursor:pointer;font-family:inherit;line-height:1;padding:0;z-index:2">‹</button>
   <button id="lb-next" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:rgba(255,255,255,.15);border:none;border-radius:50%;width:44px;height:44px;font-size:24px;color:white;cursor:pointer;font-family:inherit;line-height:1;padding:0;z-index:2">›</button>
   <img id="lb-img" style="max-width:100vw;max-height:88vh;object-fit:contain;user-select:none;-webkit-user-select:none">
@@ -492,6 +493,43 @@ function statusTheme(s) {
 }
 
 // ── Photo URL helper ────────────────────────────────────────────────────────
+// Modal date picker — resolves to a Date or null (cancelled).
+function promptDate(reason, defaultDate) {
+  return new Promise(resolve => {
+    const d = defaultDate instanceof Date ? defaultDate : new Date();
+    const pad = n => String(n).padStart(2, '0');
+    const ymd = d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate());
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:250;display:flex;align-items:center;justify-content:center;padding:20px';
+    overlay.innerHTML =
+      '<div style="background:var(--cream);border-radius:14px;padding:20px;max-width:320px;width:100%;font-family:inherit">' +
+        '<div style="font-family:\'Fraunces\',serif;font-size:18px;font-weight:700;margin-bottom:6px">When was this photo taken?</div>' +
+        '<div style="font-size:12px;color:var(--muted);margin-bottom:14px">' + (reason || '') + '</div>' +
+        '<input type="date" id="pd-input" value="' + ymd + '" max="' + ymd + '" style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:10px;font-size:14px;font-family:inherit;background:white;box-sizing:border-box;margin-bottom:14px">' +
+        '<div style="display:flex;gap:8px">' +
+          '<button id="pd-cancel" style="flex:1;padding:10px;border-radius:10px;border:1.5px solid var(--border);background:var(--cream);font-size:14px;font-weight:700;cursor:pointer;font-family:inherit">Cancel</button>' +
+          '<button id="pd-ok" style="flex:2;padding:10px;border-radius:10px;border:none;background:var(--green);color:white;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit">Use this date</button>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(overlay);
+    const input = overlay.querySelector('#pd-input');
+    setTimeout(() => input.focus(), 50);
+    const done = result => { document.body.removeChild(overlay); resolve(result); };
+    overlay.querySelector('#pd-cancel').onclick = () => done(null);
+    overlay.querySelector('#pd-ok').onclick = () => {
+      const v = input.value;
+      if (!v) { input.focus(); return; }
+      // Parse YYYY-MM-DD as local noon to avoid timezone date-shifts
+      const [y, m, dd] = v.split('-').map(Number);
+      done(new Date(y, m - 1, dd, 12, 0, 0));
+    };
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter') overlay.querySelector('#pd-ok').click();
+      if (e.key === 'Escape') done(null);
+    });
+  });
+}
+
 // Brief toast at the bottom of the screen for transient feedback
 function showToast(message, ms) {
   const existing = document.getElementById('toast');
@@ -1187,28 +1225,41 @@ async function uploadPhoto(file) {
   btn.innerHTML = '<span class="spin"></span> Uploading…';
   btn.disabled = true;
 
-  // Extract EXIF "date taken" BEFORE compress strips metadata. Falls back to
-  // upload time if EXIF is missing (screenshots, edited files, etc.).
+  // Extract EXIF "date taken" BEFORE compress strips metadata. iOS often
+  // strips EXIF in the JPEG it produces from HEIC during upload, so we treat
+  // a missing date as "ask the user" instead of silently using today.
   let ts = null;
-  let exifDebug = null;
   try {
     if (typeof exifr !== 'undefined') {
       const exif = await exifr.parse(file, ['DateTimeOriginal', 'CreateDate', 'ModifyDate']);
       console.log('[upload] EXIF parsed:', exif, 'for file:', file.name, file.type, file.size + ' bytes');
-      exifDebug = exif;
       const date = exif?.DateTimeOriginal || exif?.CreateDate || exif?.ModifyDate;
       if (date instanceof Date && !isNaN(date.getTime())) ts = date.getTime();
-    } else {
-      console.warn('[upload] exifr not loaded');
     }
   } catch (e) {
     console.warn('[upload] EXIF parse threw:', e.message);
   }
-  if (!ts) {
-    ts = Date.now();
-    showToast('No EXIF date in this photo — using today (' + file.type + ')');
-  } else {
+
+  if (ts) {
     showToast('Photo date from EXIF: ' + new Date(ts).toLocaleDateString());
+  } else {
+    // EXIF missing — let the user pick. Default = file.lastModified if it
+    // looks like a real "date taken" (more than a day old), otherwise today.
+    const lm = file.lastModified || 0;
+    const lmIsOld = (Date.now() - lm) > 86400000;
+    const defaultDate = lmIsOld ? new Date(lm) : new Date();
+    const picked = await promptDate(
+      'No EXIF date in this photo (' + (file.type || 'unknown type') + '). Pick the day it was taken.',
+      defaultDate
+    );
+    if (picked === null) {
+      // User cancelled — abort upload
+      btn.innerHTML = photoURLs[selectedId] ? '📷 Update photo' : '📷 Add photo';
+      btn.disabled = false;
+      return;
+    }
+    ts = picked.getTime();
+    showToast('Using ' + picked.toLocaleDateString() + ' for this photo');
   }
 
   const blob = await compress(file);
@@ -1344,6 +1395,57 @@ function lightboxStep(delta) {
   if (history.length === 0) return;
   lbIndex = (lbIndex + delta + history.length) % history.length;
   renderLightbox();
+}
+
+async function deleteCurrentLightboxPhoto() {
+  const pid = lbPlantId;
+  const history = photoHistory[pid] || [];
+  if (!pid || history.length === 0) return;
+  const ph = history[lbIndex];
+  if (!confirm('Delete this photo (' + ph.label + ')? This cannot be undone.')) return;
+
+  const btn = document.getElementById('lb-delete');
+  btn.disabled = true;
+  btn.textContent = '…';
+
+  const path = pid + '/' + ph.filename;
+  const { error } = await withKey('delete photo', () =>
+    sb.storage.from(BUCKET).remove([path])
+  );
+
+  if (error) {
+    alert('Delete failed: ' + error.message);
+    btn.disabled = false;
+    btn.textContent = '🗑';
+    return;
+  }
+
+  // Update local state
+  history.splice(lbIndex, 1);
+  if (history.length === 0) {
+    photoHistory[pid] = [];
+    delete photoURLs[pid];
+    closeLightbox();
+  } else {
+    // Stay on what is now the same index (the next photo) or step back if at end
+    lbIndex = Math.min(lbIndex, history.length - 1);
+    photoURLs[pid] = history[0].url;
+    btn.disabled = false;
+    btn.textContent = '🗑';
+    renderLightbox();
+  }
+
+  // Refresh the detail modal if it's open for this plant — photo wrap + history strip
+  if (selectedId === pid) {
+    const url = photoURLs[pid];
+    document.getElementById('photo-wrap').innerHTML = url
+      ? '<img src="' + url + '" alt="">'
+      : '<div class="no-photo"><span>🌱</span><p>Tap to add photo</p></div>';
+    document.getElementById('photo-btn').textContent = url ? '📷 Update photo' : '📷 Add photo';
+    document.getElementById('download-btn').style.display = url ? 'block' : 'none';
+    renderHistoryStrip(pid);
+  }
+  renderGrid();
 }
 async function downloadPhoto(id) {
   const url = photoURLs[id];
@@ -1718,6 +1820,7 @@ document.getElementById('photo-btn').addEventListener('click', () => document.ge
 document.getElementById('lb-close').addEventListener('click', closeLightbox);
 document.getElementById('lb-prev').addEventListener('click', e => { e.stopPropagation(); lightboxStep(-1); });
 document.getElementById('lb-next').addEventListener('click', e => { e.stopPropagation(); lightboxStep(1); });
+document.getElementById('lb-delete').addEventListener('click', e => { e.stopPropagation(); deleteCurrentLightboxPhoto(); });
 // Click on backdrop closes. Image is double-click to zoom (mouse) or pinch
 // (touch); single-click does not close so it doesn't conflict with double-click.
 document.getElementById('lightbox').addEventListener('click', e => {
