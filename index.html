@@ -90,6 +90,8 @@
   .card-sub { font-size: 10px; color: var(--muted); margin-bottom: 2px; line-height: 1.2; }
   .card-loc { font-size: 10px; color: var(--muted); margin-bottom: 5px; }
   .status-pill { font-size: 9.5px; font-weight: 700; padding: 3px 7px; border-radius: 8px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.25; word-break: break-word; }
+  .health-badge { display: inline-block; font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 8px; white-space: nowrap; margin-bottom: 4px; }
+  .card-status { font-size: 10px; color: var(--muted); line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; word-break: break-word; }
   .card-updated { font-size: 9px; color: var(--muted); opacity: .65; margin-top: 3px; }
 
   /* ── Overlay + Modal ── */
@@ -227,7 +229,16 @@
     <div class="field-wrap">
       <div class="field-label">Current Status</div>
       <div id="status-display" class="status-display"></div>
-      <textarea id="status-edit" rows="2" style="display:none"></textarea>
+      <select id="health-edit" style="display:none;width:100%;padding:8px 11px;border-radius:10px;border:1.5px solid var(--green);font-size:13px;font-family:inherit;background:white;margin-bottom:6px">
+        <option value="">— pick health —</option>
+        <option value="thriving">⭐ Thriving</option>
+        <option value="healthy">Healthy</option>
+        <option value="establishing">🌱 Establishing</option>
+        <option value="watch">⚠ Watch</option>
+        <option value="struggling">Struggling</option>
+        <option value="critical">☠ Critical</option>
+      </select>
+      <textarea id="status-edit" rows="2" placeholder="Short status (one sentence)" style="display:none"></textarea>
     </div>
     <div class="field-wrap">
       <div class="field-label">Notes</div>
@@ -475,21 +486,44 @@ function isAuthError(e) {
 }
 
 // ── Status theming ──────────────────────────────────────────────────────────
-function statusTheme(s) {
-  if (!s) return {color:'#6b7280',bg:'#f3f4f6'};
+// Health-enum theming. The 6 values map to color tokens + an optional emoji
+// prefix the badge can show. healthMeta(null) returns a neutral "unknown" pill.
+const HEALTH_META = {
+  thriving:     { label: 'Thriving',     emoji: '⭐', color: 'var(--sky-fg)',    bg: 'var(--sky-bg)',    severity: 0 },
+  healthy:      { label: 'Healthy',      emoji: '',   color: 'var(--good-fg)',   bg: 'var(--good-bg)',   severity: 1 },
+  establishing: { label: 'Establishing', emoji: '🌱', color: 'var(--purple-fg)', bg: 'var(--purple-bg)', severity: 2 },
+  watch:        { label: 'Watch',        emoji: '⚠',  color: 'var(--warn-fg)',   bg: 'var(--warn-bg)',   severity: 3 },
+  struggling:   { label: 'Struggling',   emoji: '',   color: '#9a3412',          bg: '#fed7aa',          severity: 4 },
+  critical:     { label: 'Critical',     emoji: '☠',  color: 'var(--danger-fg)', bg: 'var(--danger-bg)', severity: 5 },
+};
+function healthMeta(h) {
+  return HEALTH_META[h] || { label: '—', emoji: '', color: 'var(--muted)', bg: 'var(--soft)', severity: -1 };
+}
+
+// Legacy fallback: when a plant has no health value set yet, infer one from
+// the freeform status text. Used until the one-time migration runs (and as a
+// safety net for hand-edited statuses afterward).
+function inferHealthFromStatus(s) {
+  if (!s) return null;
   const l = s.toLowerCase();
-  if (l.includes('☠') || l.includes('toxic'))    return {color:'var(--danger-fg)',bg:'var(--danger-bg)'};
-  if (l.includes('⚠') || l.includes('urgent') || l.includes('emergency') || l.includes('recover') || l.includes('await') || l.includes('stress'))
-    return {color:'var(--warn-fg)',bg:'var(--warn-bg)'};
-  if (l.includes('⭐') || l.includes('full bloom') || l.includes('blooming'))
-    return {color:'var(--sky-fg)',bg:'var(--sky-bg)'};
-  if (l.includes('harvest') || l.includes('watch for flower') || l.includes('filling'))
-    return {color:'var(--good-fg)',bg:'var(--good-bg)'};
-  if (l.includes('newly') || l.includes('establishing') || l.includes('germinating') || l.includes('sown') || l.includes('transplanted'))
-    return {color:'var(--purple-fg)',bg:'var(--purple-bg)'};
-  if (l.includes('healthy') || l.includes('established'))
-    return {color:'var(--good-fg)',bg:'var(--good-bg)'};
-  return {color:'#6b7280',bg:'#f3f4f6'};
+  if (l.includes('☠') || l.includes('toxic') || l.includes('critical') || l.includes('dying')) return 'critical';
+  if (l.includes('⚠') || l.includes('struggling') || l.includes('severe')) return 'struggling';
+  if (l.includes('urgent') || l.includes('emergency') || l.includes('overdue') || l.includes('stress') ||
+      l.includes('mild') || l.includes('borderline') || l.includes('persistent') || l.includes('recover')) return 'watch';
+  if (l.includes('⭐') || l.includes('thriving') || l.includes('full bloom')) return 'thriving';
+  if (l.includes('newly') || l.includes('establishing') || l.includes('germinating') ||
+      l.includes('transplanted') || l.includes('rooting')) return 'establishing';
+  if (l.includes('healthy') || l.includes('established') || l.includes('harvest')) return 'healthy';
+  return null;
+}
+
+function plantHealth(plant) {
+  return overrides[plant.id]?.health || inferHealthFromStatus(getStatus(plant));
+}
+
+// Back-compat shim — older calls to statusTheme(text) now go through health.
+function statusTheme(s) {
+  return healthMeta(inferHealthFromStatus(s));
 }
 
 // ── Photo URL helper ────────────────────────────────────────────────────────
@@ -755,12 +789,13 @@ function attachLongPress(el, onShort, onLong, holdMs) {
 // ── Render helpers ──────────────────────────────────────────────────────────
 function getStatus(plant) { return overrides[plant.id]?.status || plant.status; }
 
-// True if a plant should surface in the "Attention" tab — either its status
-// text flags it (⚠/☠) or it's overdue on water/feed cadence.
+// True if a plant should surface in the "Attention" tab. Health is the
+// primary signal (watch / struggling / critical); overdue water/feed is the
+// secondary signal.
 function needsAttention(p) {
   if (p.archived_at) return false;
-  const st = (getStatus(p) || '').toLowerCase();
-  if (st.includes('⚠') || st.includes('☠') || st.includes('urgent') || st.includes('overdue')) return true;
+  const h = plantHealth(p);
+  if (h === 'watch' || h === 'struggling' || h === 'critical') return true;
   if (p.water_every_days) {
     const w = careStatus(p, 'water', p.water_every_days);
     if (w.dueIn !== null && w.dueIn <= 0) return true;
@@ -865,8 +900,9 @@ function renderGrid() {
   const grid = document.getElementById('grid');
   grid.innerHTML = plants.map(p => {
     const url = photoURLs[p.id];
-    const st = getStatus(p);
-    const { color, bg } = statusTheme(st);
+    const st = (getStatus(p) || '').replace(/^[☠⚠⭐🌱]\s*/,'').replace(/^Healthy\s*[—-]\s*/i,'').trim();
+    const h = plantHealth(p);
+    const hm = healthMeta(h);
     const ov = overrides[p.id];
     const sel = selectMode && selectedIds.has(p.id);
     return `
@@ -881,7 +917,8 @@ function renderGrid() {
           <div class="card-name">${p.name}</div>
           ${p.sub ? `<div class="card-sub">${p.sub}</div>` : ''}
           <div class="card-loc">${p.loc}</div>
-          <span class="status-pill" style="color:${color};background:${bg}">${st.replace(/[☠⚠⭐]/g,'').trim()}</span>
+          ${h ? `<span class="health-badge" style="color:${hm.color};background:${hm.bg}">${hm.emoji ? hm.emoji + ' ' : ''}${hm.label}</span>` : ''}
+          ${st ? `<div class="card-status">${st}</div>` : ''}
           ${ov?.updated_at ? `<div class="card-updated">Updated ${new Date(ov.updated_at).toLocaleDateString('en-US',{month:'short',day:'numeric'})}</div>` : ''}
         </div>
       </div>`;
@@ -926,19 +963,26 @@ function openModal(id) {
 
   document.getElementById('toxic-warn').style.display = p.toxic ? 'block' : 'none';
 
-  // Status & notes
+  // Status & notes — show health badge above status text
   const st = getStatus(p);
-  const { color, bg } = statusTheme(st);
+  const h = plantHealth(p);
+  const hm = healthMeta(h);
   const statusDisplay = document.getElementById('status-display');
-  statusDisplay.textContent = st;
-  statusDisplay.style.color = color;
-  statusDisplay.style.background = bg;
+  const healthHTML = h
+    ? `<span class="health-badge" style="color:${hm.color};background:${hm.bg};margin-right:8px">${hm.emoji ? hm.emoji + ' ' : ''}${hm.label}</span>`
+    : '';
+  const cleanStatus = (st || '').replace(/^[☠⚠⭐🌱]\s*/,'').replace(/^Healthy\s*[—-]\s*/i,'').trim();
+  statusDisplay.innerHTML = healthHTML + (cleanStatus ? `<span>${cleanStatus.replace(/</g,'&lt;')}</span>` : '');
+  // Status pill background is now neutral; the badge carries the color signal
+  statusDisplay.style.color = 'var(--text)';
+  statusDisplay.style.background = 'var(--soft)';
 
   const notesDisplay = document.getElementById('notes-display');
   notesDisplay.textContent = ov?.notes || 'No notes yet — tap Edit to add.';
   notesDisplay.className = 'notes-display' + (ov?.notes ? ' has-notes' : '');
 
-  document.getElementById('status-edit').value = st;
+  document.getElementById('status-edit').value = cleanStatus;
+  document.getElementById('health-edit').value = h || '';
   document.getElementById('notes-edit').value = ov?.notes || '';
 
   setEditMode(false);
@@ -1181,6 +1225,7 @@ function closeModal() {
 function setEditMode(on) {
   editMode = on;
   document.getElementById('status-display').style.display = on ? 'none' : 'block';
+  document.getElementById('health-edit').style.display = on ? 'block' : 'none';
   document.getElementById('status-edit').style.display = on ? 'block' : 'none';
   document.getElementById('notes-display').style.display = on ? 'none' : 'block';
   document.getElementById('notes-edit').style.display = on ? 'block' : 'none';
@@ -1195,22 +1240,31 @@ async function saveOverride() {
   btn.disabled = true;
 
   const status = document.getElementById('status-edit').value.trim();
+  const health = document.getElementById('health-edit').value || null;
   const notes = document.getElementById('notes-edit').value.trim();
   const existing = overrides[selectedId] || {};
-  const row = { id: selectedId, status, notes, photo_ts: existing.photo_ts || null, updated_at: new Date().toISOString() };
+  const row = { id: selectedId, status, health, notes, photo_ts: existing.photo_ts || null, updated_at: new Date().toISOString() };
 
   const { error } = await withKey('save status & notes', () =>
     sb.from('plant_overrides').upsert(row).select(),
     { expectRows: true }
   );
   if (!error) {
-    overrides[selectedId] = row;
-    // Refresh display
-    const { color, bg } = statusTheme(status);
+    // Preserve health (and any other override fields we didn't change)
+    overrides[selectedId] = { ...(overrides[selectedId] || {}), ...row };
+    // Re-open the modal section's status display via the shared rendering path —
+    // simpler than duplicating the badge logic here.
+    const p = PLANTS.find(x => x.id === selectedId);
+    const h = plantHealth(p);
+    const hm = healthMeta(h);
     const statusDisplay = document.getElementById('status-display');
-    statusDisplay.textContent = status;
-    statusDisplay.style.color = color;
-    statusDisplay.style.background = bg;
+    const healthHTML = h
+      ? `<span class="health-badge" style="color:${hm.color};background:${hm.bg};margin-right:8px">${hm.emoji ? hm.emoji + ' ' : ''}${hm.label}</span>`
+      : '';
+    const cleanStatus = (status || '').replace(/^[☠⚠⭐🌱]\s*/,'').replace(/^Healthy\s*[—-]\s*/i,'').trim();
+    statusDisplay.innerHTML = healthHTML + (cleanStatus ? `<span>${cleanStatus.replace(/</g,'&lt;')}</span>` : '');
+    statusDisplay.style.color = 'var(--text)';
+    statusDisplay.style.background = 'var(--soft)';
     const notesDisplay = document.getElementById('notes-display');
     notesDisplay.textContent = notes || 'No notes yet — tap Edit to add.';
     notesDisplay.className = 'notes-display' + (notes ? ' has-notes' : '');
@@ -1805,16 +1859,14 @@ async function analyzeCurrentPlant() {
       return;
     }
 
-    // Success — the endpoint wrote the new note to plant_overrides. Refresh
-    // local override state and re-render the modal's notes section.
+    // Success — the endpoint updated health, status, and notes. Pull the
+    // fresh override state and re-render the modal end-to-end (cleanest way
+    // to pick up the new health badge + status text + notes).
     const { data } = await sb.from('plant_overrides').select('*').eq('id', plantId).limit(1);
     if (data && data[0]) {
       overrides[plantId] = data[0];
-      if (selectedId === plantId) {
-        const notesDisplay = document.getElementById('notes-display');
-        notesDisplay.textContent = data[0].notes || 'No notes yet — tap Edit to add.';
-        notesDisplay.className = 'notes-display' + (data[0].notes ? ' has-notes' : '');
-      }
+      if (selectedId === plantId) openModal(plantId);
+      renderGrid();
     }
 
     const a = body.analysis;

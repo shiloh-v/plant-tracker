@@ -15,7 +15,11 @@ const SUPABASE_KEY = 'sb_publishable_Qd7TJXvaLerPAPayVJWxtg_hzqVJni7';
 const BUCKET = 'plant-photos';
 const MODEL = 'claude-sonnet-4-6';
 
-// JSON schema for the analysis — keeps Claude's output strictly typed
+// JSON schema for the analysis — keeps Claude's output strictly typed.
+// `health` and `status_one_liner` drive the UI (colored badge + status text);
+// `observations` and `action_items` accumulate in the notes log.
+const HEALTH_VALUES = ['thriving', 'healthy', 'establishing', 'watch', 'struggling', 'critical'];
+
 const ANALYSIS_SCHEMA = {
   type: 'object',
   properties: {
@@ -35,7 +39,16 @@ const ANALYSIS_SCHEMA = {
     },
     health: {
       type: 'string',
-      enum: ['thriving', 'healthy', 'watch', 'struggling', 'critical']
+      enum: HEALTH_VALUES,
+      description: 'Current health state. thriving=better than expected, healthy=normal, establishing=new/recovering, watch=minor concern, struggling=intervention needed, critical=may die without help.'
+    },
+    status_one_liner: {
+      type: 'string',
+      description: "A single short sentence describing the plant's current condition, suitable to replace the freeform status text. Max ~120 chars. No leading emojis or labels — just the observation."
+    },
+    change_vs_prior: {
+      type: 'string',
+      description: 'If prior analyses were provided, one sentence on how the plant changed since the last one. Empty string if no prior analyses or no notable change.'
     },
     observations: {
       type: 'array',
@@ -48,9 +61,21 @@ const ANALYSIS_SCHEMA = {
       description: 'Concrete next steps (max 4). Empty array if no action needed.'
     }
   },
-  required: ['id_check', 'health', 'observations', 'action_items'],
+  required: ['id_check', 'health', 'status_one_liner', 'change_vs_prior', 'observations', 'action_items'],
   additionalProperties: false
 };
+
+// Extract prior AI analyses from the notes blob. Each is tagged like
+// "[Jun 3, 2026 AI analysis] Health: ..." — we split on that marker and return
+// the most recent N as plain text blocks for sending as context.
+function extractPriorAnalyses(notes, limit = 2) {
+  if (!notes) return [];
+  const parts = notes.split(/(?=\[[^\]]+? AI analysis\])/);
+  return parts
+    .map(s => s.trim())
+    .filter(s => s.startsWith('[') && /AI analysis/.test(s))
+    .slice(-limit);
+}
 
 export default async function handler(req, res) {
   // CORS (Vercel deploys this on the same origin as the static site, so CORS
@@ -135,12 +160,20 @@ export default async function handler(req, res) {
       `Recorded name: ${plant.name}${plant.sub ? ` (${plant.sub})` : ''}`,
       `Scientific name: ${plant.sci || '(unknown)'}`,
       `Type / location: ${plant.type} / ${plant.loc}`,
-      `Current status: ${(override.status || plant.status || '(none)').trim()}`,
+      `Current status text: ${(override.status || plant.status || '(none)').trim()}`,
     ];
+    if (override.health) ctxLines.push(`Current health rating: ${override.health}`);
     if (plant.water_every_days) ctxLines.push(`Water cadence: every ${plant.water_every_days} days`);
     if (plant.feed_every_days) ctxLines.push(`Feed cadence: every ${plant.feed_every_days} days`);
     if (plant.toxic) ctxLines.push('Marked toxic to dogs');
     if (plant.seasonal_care) ctxLines.push('Marked as seasonal-care (needs winter adjustment)');
+
+    // 5b. Pull the last 2 AI analyses (if any) for temporal context
+    const priorAnalyses = extractPriorAnalyses(override.notes, 2);
+    const priorBlock = priorAnalyses.length === 0
+      ? '\n(No prior AI analyses on this plant.)\n'
+      : '\nMost recent prior AI analyses (oldest first):\n' +
+        priorAnalyses.map(p => '---\n' + p + '\n---').join('\n');
 
     // 6. Call Claude with structured output
     const anthropic = new Anthropic();  // reads ANTHROPIC_API_KEY env var
@@ -159,12 +192,21 @@ export default async function handler(req, res) {
             type: 'text',
             text:
               "Analyze this photo of a plant from the owner's tracker.\n\n" +
-              "Tracker context:\n" + ctxLines.join('\n') + "\n\n" +
+              "Tracker context:\n" + ctxLines.join('\n') + "\n" +
+              priorBlock + "\n" +
               "Focus on what's visible in the photo — leaf condition, color, growth pattern, " +
               "soil/pot if visible. Don't restate the tracker data.\n\n" +
+              "Pick the single best `health` value from: thriving | healthy | establishing | " +
+              "watch | struggling | critical.\n\n" +
+              "Write `status_one_liner` as the new freeform status text the user will see on " +
+              "the plant's card: one short sentence describing current condition. No leading " +
+              "emojis or 'Healthy —' prefixes; the health badge handles that.\n\n" +
+              "If prior analyses are provided, use `change_vs_prior` for one sentence on what " +
+              "has changed since the last one (improving, worsening, no change). Otherwise " +
+              "leave it empty.\n\n" +
               "If the species visible in the photo doesn't match the recorded name, set " +
               "id_check.matches=false and put your best species guess in actual_species. " +
-              "If it matches, set actual_species to the recorded name and confidence accordingly.\n\n" +
+              "If it matches, set actual_species to the recorded name.\n\n" +
               "Keep observations and action_items to one short sentence each. Use 0–4 actions; " +
               "leave empty if no action is warranted."
           }
@@ -185,9 +227,18 @@ export default async function handler(req, res) {
       });
     }
 
-    // 8. Format the result as a human-readable note
+    // Defensive: enum sanity check (Anthropic enforces enum but trust-but-verify)
+    if (!HEALTH_VALUES.includes(analysis.health)) {
+      console.warn('Unexpected health value:', analysis.health, '— falling back to "watch"');
+      analysis.health = 'watch';
+    }
+
+    // 8. Format the result as a human-readable note (appended to history)
     const today = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
     const noteLines = [`[${today} AI analysis] Health: ${analysis.health}.`];
+    if (analysis.change_vs_prior && analysis.change_vs_prior.trim()) {
+      noteLines.push(`Change vs prior: ${analysis.change_vs_prior.trim()}`);
+    }
     if (analysis.id_check && analysis.id_check.matches === false) {
       const conf = analysis.id_check.confidence || 'medium';
       noteLines.push(`⚠ Possible mis-ID: photo looks like ${analysis.id_check.actual_species} (${conf} confidence), not ${plant.name}.`);
@@ -202,7 +253,7 @@ export default async function handler(req, res) {
     }
     const noteText = noteLines.join('\n');
 
-    // 9. Write back to plant_overrides.notes — preserves existing photo_ts
+    // 9. Write back: update health, replace status with the one-liner, append note
     const existingNotes = override.notes ? override.notes + '\n\n' : '';
     const upsertResp = await fetch(`${SUPABASE_URL}/rest/v1/plant_overrides?on_conflict=id`, {
       method: 'POST',
@@ -215,6 +266,8 @@ export default async function handler(req, res) {
       },
       body: JSON.stringify({
         id: plantId,
+        health: analysis.health,
+        status: analysis.status_one_liner?.trim() || override.status || null,
         notes: existingNotes + noteText,
         updated_at: new Date().toISOString()
       })
