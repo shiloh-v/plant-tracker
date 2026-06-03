@@ -149,9 +149,8 @@
   /* ── Photo history strip ── */
   #history-strip-wrap { margin-top: 12px; margin-bottom: 4px; display: none; }
   #history-strip-label { font-size: 10px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .07em; margin-bottom: 6px; }
-  #history-strip { display: flex; gap: 7px; overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 4px; }
-  #history-strip::-webkit-scrollbar { display: none; }
-  .hist-thumb { flex-shrink: 0; width: 72px; cursor: pointer; }
+  #history-strip { display: grid; grid-template-columns: repeat(auto-fill, 72px); gap: 7px 7px; justify-content: start; }
+  .hist-thumb { width: 72px; cursor: pointer; }
   .hist-thumb img { width: 72px; height: 72px; object-fit: cover; border-radius: 8px; border: 2px solid transparent; transition: border-color .12s; }
   .hist-thumb img.active { border-color: var(--green); }
   .hist-thumb-label { font-size: 9px; color: var(--muted); text-align: center; margin-top: 3px; line-height: 1.2; }
