@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Plant Tracker — Seed Database</title>
+<style>
+  body { font-family: -apple-system, system-ui, sans-serif; max-width: 640px; margin: 40px auto; padding: 20px; background: #f4f0e8; color: #1e1a12; }
+  h1 { font-size: 22px; margin-bottom: 6px; }
+  .sub { color: #7a7060; margin-bottom: 24px; font-size: 14px; }
+  label { display: block; margin: 14px 0 4px; font-size: 12px; font-weight: 700; text-transform: uppercase; color: #7a7060; }
+  input { width: 100%; padding: 10px 12px; border: 1px solid #e0d8cc; border-radius: 8px; font-size: 14px; box-sizing: border-box; background: white; }
+  button { margin-top: 24px; padding: 12px 24px; background: #2d5a27; color: white; border: none; border-radius: 8px; font-size: 15px; font-weight: 700; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  #log { margin-top: 24px; padding: 14px; background: white; border: 1px solid #e0d8cc; border-radius: 8px; font-family: ui-monospace, monospace; font-size: 12px; min-height: 120px; white-space: pre-wrap; line-height: 1.6; }
+  .ok  { color: #15803d; font-weight: 700; }
+  .err { color: #b91c1c; font-weight: 700; }
+  .note { background: #fef3c7; border: 1px solid #fde68a; border-radius: 8px; padding: 12px; margin-bottom: 20px; font-size: 13px; color: #92400e; }
+</style>
+</head>
+<body>
+
+<h1>🌱 Seed Plant Tracker database</h1>
+<p class="sub">One-time import of the 95 plants from <code>index.html</code> into the new <code>plants</code> table. Safe to re-run — uses upsert on the plant id.</p>
+
+<div class="note">
+  <strong>Run migration first.</strong> Make sure you've run <code>migrations/001_plants_table.sql</code> in Supabase before clicking Seed below. Use the same passphrase here that you set in the SQL.
+</div>
+
+<label>Supabase URL</label>
+<input id="url" value="https://mfeebwaniooindqagwqt.supabase.co">
+
+<label>Publishable key</label>
+<input id="key" value="sb_publishable_Qd7TJXvaLerPAPayVJWxtg_hzqVJni7">
+
+<label>Passphrase (must match plant_key_ok() in the migration)</label>
+<input id="pass" type="password" placeholder="Your secret passphrase">
+
+<button id="go">Seed plants table →</button>
+
+<div id="log">Ready.</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+// ─── PLANTS data — copied verbatim from index.html ───────────────────────────
+const PLANTS = [
+  // ── INDOOR ────────────────────────────────────────────────────────────────
+  // Family Room
+  {id:'i01',name:'African Violet',sub:'Purple Bicolor',sci:'Saintpaulia ionantha',type:'indoor',loc:'Family Room',pot:'Black hexagonal ceramic',status:'Healthy — full rosette, recovering from deadheading',toxic:false},
+  {id:'i02',name:'African Violet',sub:"Addi's (Pink/White/Purple)",sci:'Saintpaulia ionantha',type:'indoor',loc:'Family Room',pot:'White bowl pot',status:'Healthy — full foliage, center rebuilding',toxic:false},
+  {id:'i04',name:'Aloe Vera',sci:'Aloe barbadensis miller',type:'indoor',loc:'Family Room',pot:'Large weathered gray ceramic (floor)',status:'Healthy — repotted May 26, upright leaves, good color',toxic:false},
+  {id:'i05',name:'Fittonia',sci:'Fittonia albivenis',type:'indoor',loc:'Family Room',pot:'Green ceramic (plant stand)',status:'Healthy — stunning white veining, thriving on stand',toxic:false},
+  {id:'i06',name:'Bronze Venus Maidenhair Fern',sci:'Adiantum hispidulum',type:'indoor',loc:'Family Room',pot:'White/cream speckled striped ceramic (plant stand)',status:'Healthy — on plant stand with grow light',toxic:false},
+  {id:'i07',name:'Succulent Combo',sub:'Finger succulent + Haworthiopsis + Euphorbia anoplia',sci:'Curio sp. / Haworthiopsis sp. / Euphorbia anoplia',type:'indoor',loc:'Family Room',pot:'White speckled scalloped ceramic bowl with metal liner',status:'Establishing — three-plant combo on plant stand',toxic:true},
+  {id:'i09',name:'Jade Plant',sci:'Crassula ovata',type:'indoor',loc:'Family Room',pot:'Dark gray/charcoal ceramic with saucer (plant stand)',status:'Healthy — firm, plump leaves, good color',toxic:false},
+  {id:'i13',name:'String of Coins',sci:'Peperomia rotundifolia',type:'indoor',loc:'Family Room',pot:'White cat-face ceramic (green drain insert)',status:'Healthy — dense, trailing nicely on windowsill',toxic:false},
+  {id:'i14',name:'Lithops',sub:'Living Stones',sci:'Lithops sp.',type:'indoor',loc:'Family Room',pot:'Black cat-face ceramic (terracotta insert)',status:'⚠ Molting in progress — do NOT water, check June 1',toxic:true},
+  {id:'i16',name:'Echeveria',sub:'best-guess ID — multi-headed blue-grey rosette',sci:'Echeveria sp.',type:'indoor',loc:'Family Room',pot:'White spider pot (windowsill)',status:'⚠ Etiolation improving — moved to windowsill, monitor',toxic:false},
+  {id:'i21',name:'Red Prayer Plant',sci:'Maranta leuconeura var. erythroneura',type:'indoor',loc:'Family Room',pot:'Oversized white ceramic bowl',status:'⭐ Thriving — vivid herringbone, new leaf unfurling',toxic:false},
+  {id:'i22',name:'Moses in the Cradle',sci:'Tradescantia spathacea',type:'indoor',loc:'Family Room',pot:'Blue ribbed ceramic with saucer (plant stand)',status:'⚠ Persistent tip browning — increase humidity',toxic:true},
+  {id:'i26',name:'String of Bananas',sci:'Curio radicans',type:'indoor',loc:'Family Room',pot:'Dark gray/charcoal round pot (plant stand)',status:'Healthy — trailing well, plump leaves',toxic:false},
+  {id:'i27',name:'Tuberous Begonia',sub:'Nonstop Joy Rose Picotee',sci:'Begonia × tuberhybrida',type:'indoor',loc:'Family Room',pot:'Brown clay terracotta pot (plant stand)',status:'⚠ Struggling — transplanted to brown clay terracotta pot; wilting stems, may not recover. Monitor closely. May 30.',toxic:true},
+  {id:'i28',name:'Philodendron Brasil',sci:'Philodendron hederaceum var. oxycardium',type:'indoor',loc:'Family Room',pot:'Dark blue/black patterned ceramic with saucer (plant stand)',status:'Healthy — active growth, new leaf unfurling',toxic:true},
+  {id:'i29',name:'Ficus Bonsai',sub:'Chinese Banyan',sci:'Ficus microcarpa',type:'indoor',loc:'Family Room',pot:'Burgundy rectangular ceramic bonsai pot with saucer (plant stand)',status:'Healthy — full canopy, volunteer seedling in substrate',toxic:true},
+  {id:'i30',name:'Monstera',sci:'Monstera deliciosa',type:'indoor',loc:'Family Room',pot:'Black 3-gal decorative plastic pot',status:'⭐ Thriving — huge leaves, new leaf unfurling',toxic:true},
+  {id:'i31',name:'Elephant Bush',sci:'Portulacaria afra',type:'indoor',loc:'Family Room',pot:'Orange plastic pot (decorative replacement TBD)',status:'Healthy — very full and bushy',toxic:false},
+  {id:'i32',name:'Thimble Cactus',sci:'Mammillaria prolifera',type:'indoor',loc:'Family Room',pot:'Terracotta bowl (plant stand)',status:'⭐ Thriving — massive clustering colony',toxic:false},
+  {id:'i33',name:'String of Hearts',sci:'Ceropegia woodii',type:'indoor',loc:'Family Room',pot:'Black spider pot (windowsill)',status:'⭐ Thriving — long trailing vines, healthy',toxic:false},
+  {id:'i34',name:'Aloe Vera Pup',sub:'Medium pup from i04',sci:'Aloe barbadensis miller',type:'indoor',loc:'Family Room',pot:'White pot (plant stand)',status:'Newly separated — establishing',toxic:false},
+  {id:'i35',name:'Aloe Vera Pup',sub:'Small pup from i04',sci:'Aloe barbadensis miller',type:'indoor',loc:'Family Room',pot:'Small gray 4.5" pot (plant stand)',status:'Newly separated — establishing',toxic:false},
+  {id:'i36',name:'Caladium',sub:"Sizzle (USPP#26591)",sci:'Caladium bicolor',type:'indoor',loc:'Family Room',pot:'Dark gray/black octagonal ceramic (plant stand)',status:'⭐ Thriving — spectacular pink/green leaves, keep moist',toxic:true},
+  // The Archives
+  {id:'i10',name:'Spider Plant',sci:'Chlorophytum comosum',type:'indoor',loc:'The Archives',pot:'Glossy black ceramic cauldron bowl',status:'⭐ Thriving — flowering runner, spiderette developing',toxic:false},
+  {id:'i11',name:'Pothos',sub:'Propagated Cutting',sci:'Epipremnum aureum',type:'indoor',loc:'The Archives',pot:'White/cream and burgundy glazed ceramic bowl with saucer',status:'Healthy — establishing well, good window light',toxic:false},
+  {id:'i24',name:"Rabbit's Foot Prayer Plant",sub:"Hunter's plant",sci:'Maranta leuconeura var. kerchoveana',type:'indoor',loc:'The Archives',pot:'Black cauldron self-watering pot',status:'⚠ Recovering — moved to bright window, monitor weekly',toxic:false},
+  // Sunroom
+  {id:'i17',name:'Succulent Rosette',sub:'best-guess: Pachyveria/Graptoveria',sci:'Pachyveria sp. or Graptoveria sp.',type:'indoor',loc:'Sunroom',pot:'Pink textured ceramic cylinder',status:'Healthy — plump, tight, thriving in sunroom',toxic:false},
+  {id:'i18',name:'Stacked Succulent',sub:'best-guess: Crassula perforata',sci:'Crassula perforata or similar',type:'indoor',loc:'Sunroom',pot:'White cat-face ceramic',status:'Healthy — compact, multiple heads, thriving',toxic:false},
+  {id:'i25',name:'Echeveria',sci:'Echeveria sp.',type:'indoor',loc:'Family Room',pot:'White ceramic cylinder with chevron base (plant stand)',status:'⭐ Thriving — enormous flat rosette, stunning blue-gray with pink/red edge tips. Repotted and moved from Sunroom to Family Room stand May 30.',toxic:false},
+  // Jack's Office
+  {id:'i20',name:'Pothos',sub:"Parent Plant (Jack's Office)",sci:'Epipremnum aureum',type:'indoor',loc:"Jack's Office",pot:'White ribbed self-watering pot',status:'⚠ Pale from low light — consider grow light for shelf',toxic:false},
+
+  // ── OUTDOOR ───────────────────────────────────────────────────────────────
+  {id:'o47',name:'Strawberry',sub:'Pretty in Pink ×2',sci:'Fragaria × ananassa',type:'outdoor',loc:'Strawberry Planter — Elevated',pot:'#1 — Cedarcraft self-watering',status:'⭐ Thriving — full, lush, soft pink blooms, well established',toxic:false},
+  {id:'o48',name:'Strawberry',sub:'Chandler ×3',sci:'Fragaria × ananassa',type:'outdoor',loc:'Strawberry Planter — Elevated',pot:'#1 — Cedarcraft self-watering',status:'⭐ Thriving — all three healthy, white blooms, establishing well',toxic:false},
+  {id:'o49',name:'Strawberry',sub:'Delizz ×2 (Everbearing)',sci:'Fragaria × ananassa',type:'outdoor',loc:'Strawberry Planter — Elevated',pot:'#1 — Cedarcraft self-watering',status:'⭐ Thriving — large lush foliage, fruit forming',toxic:false},
+  {id:'o58',name:'Strawberry',sub:'Berries Galore New Rose (Everbearing)',sci:'Fragaria × ananassa',type:'outdoor',loc:'Strawberry Planter — Elevated',pot:'#1 — Cedarcraft self-watering',status:'⭐ Thriving — heavy pink blooms, ripe/near-ripe fruit visible. Star performer',toxic:false},
+  {id:'o51',name:'Strawberry',sub:'Tristan',sci:'Fragaria × ananassa',type:'outdoor',loc:'Strawberry Planter — Elevated',pot:'#1 — Cedarcraft self-watering',status:'⭐ Thriving — deep pink blooms, well established',toxic:false},
+  {id:'o01',name:'Upright Rosemary',sci:'Salvia rosmarinus',type:'outdoor',loc:'Herb Planter — Elevated',pot:'#41 — dry end',status:'Healthy — established, light harvesting OK',toxic:false},
+  {id:'o02',name:'English Lavender',sci:'Lavandula angustifolia',type:'outdoor',loc:'Herb Planter — Elevated',pot:'#41 — dry end',status:'Healthy — full silver-green mound, no blooms yet but strong',toxic:false},
+  {id:'o03',name:'Berggarten Sage',sci:"Salvia officinalis 'Berggarten'",type:'outdoor',loc:'Herb Planter — Elevated',pot:'#41 — dry end',status:'⭐ Thriving — massive full mound, harvest up to 1/3 regularly',toxic:false},
+  {id:'o04',name:'Thyme',sci:'Thymus vulgaris',type:'outdoor',loc:'Herb Planter — Elevated',pot:'#41 — dry end',status:'Healthy — spreading, flowering (peak flavor). Harvestable',toxic:false},
+  {id:'o05',name:'Flat-leaf Parsley',sub:'×1',sci:'Petroselinum crispum var. neapolitanum',type:'outdoor',loc:'Herb Planter — Elevated',pot:'#41 — middle',status:'Healthy — tall and growing, harvest outer stems regularly',toxic:false},
+  {id:'o06',name:'Basil',sub:"Rutgers Devotion",sci:'Ocimum basilicum',type:'outdoor',loc:'Herb Planter — Elevated',pot:'#41 — middle',status:'Healthy — full, lush, no flowering yet. Harvestable',toxic:false},
+  {id:'o07',name:'Stevia',sci:'Stevia rebaudiana',type:'outdoor',loc:'Herb Planter — Elevated',pot:'#41 — middle',status:'⭐ Thriving — enormous and sprawling. Harvest stems anytime',toxic:false},
+  {id:'o54',name:'Sweet Basil',sci:'Ocimum basilicum',type:'outdoor',loc:'Herb Planter — Elevated',pot:'#41 — middle',status:'Healthy — bushy, good color',toxic:false},
+  {id:'o55',name:'Fernleaf Dill',sci:'Anethum graveolens',type:'outdoor',loc:'Herb Planter — Elevated',pot:'#41 — middle',status:'⭐ Thriving — gorgeous full feathery mound. Harvest fronds anytime',toxic:false},
+  {id:'o56',name:'Buttercrunch Lettuce',sub:'×2',sci:'Lactuca sativa',type:'outdoor',loc:'Herb Planter — Elevated',pot:'#41 — wet end, front row',status:'⚠ Harvest immediately — enormous heads, overdue, will bolt soon',toxic:false},
+  {id:'o57',name:'Spinach',sub:'Matador + seedlings',sci:'Spinacia oleracea',type:'outdoor',loc:'Herb Planter — Elevated',pot:'#41 — wet end, back row',status:'⚠ Bolting — harvest everything usable immediately. Matador seedlings emerging',toxic:false},
+  {id:'o64',name:'Lettuce',sub:'Grand Rapids (seedlings)',sci:'Lactuca sativa',type:'outdoor',loc:'Herb Planter — Elevated',pot:'#41 — wet end',status:'Germinating — tiny seedlings emerging, healthy true leaves',toxic:false},
+  {id:'o08',name:'Spearmint',sci:'Mentha spicata',type:'outdoor',loc:'Mints — Dog-Free',pot:'#2 — 12" black plastic round',status:'Healthy — full and dense. Harvestable',toxic:false},
+  {id:'o09',name:'Peppermint',sci:'Mentha × piperita',type:'outdoor',loc:'Mints — Dog-Free',pot:'#3 — 12" black plastic round',status:'Healthy — lush and overflowing. Harvestable',toxic:false},
+  {id:'o10',name:'Apple Mint',sci:'Mentha suaveolens',type:'outdoor',loc:'Mints — Dog-Free',pot:'#4 — 12" black plastic round',status:'Healthy — full, slight yellowing on older leaves (normal). Harvestable',toxic:false},
+  {id:'o11',name:'Mojito Mint',sci:'Mentha × villosa',type:'outdoor',loc:'Mints — Dog-Free',pot:'#5 — 12" black plastic round',status:'Healthy — dense and spreading. Harvestable',toxic:false},
+  {id:'o12',name:'Strawberry Mint',sci:"Mentha spicata 'Strawberry'",type:'outdoor',loc:'Mints — Dog-Free',pot:'#6 — 12" black plastic round',status:'Healthy — full and green, no visible urine damage this check-in. Harvestable',toxic:false},
+  {id:'o13',name:'Orange Mint',sci:"Mentha × piperita 'Citrata'",type:'outdoor',loc:'Mints — Dog-Free',pot:'#7 — 12" black plastic round',status:'Healthy — full coverage. Harvestable',toxic:false},
+  {id:'o14',name:'Cherry Tomato',sub:'Supersweet 100',sci:'Solanum lycopersicum',type:'outdoor',loc:'Veggies — Dog-Free',pot:'#9 — 15" orange plastic round',status:'⭐ Thriving — explosive growth, towering above cage, multiple green tomatoes forming',toxic:false},
+  {id:'o15',name:'Cherry Tomato',sub:'Mexico Midget',sci:'Solanum lycopersicum',type:'outdoor',loc:'Veggies — Dog-Free',pot:'#10 — 15" orange plastic round',status:'⭐ Thriving — tall, vigorous, yellow blooms, green fruit developing',toxic:false},
+  {id:'o16',name:'Slicer Tomato',sub:'Big Boy',sci:'Solanum lycopersicum',type:'outdoor',loc:'Veggies — Dog-Free',pot:'#11 — 15" orange plastic round',status:'⚠ Mild leaf curl — monitor weekly for pests or stress',toxic:false},
+  {id:'o17',name:'Paste Tomato',sub:'La Roma',sci:'Solanum lycopersicum',type:'outdoor',loc:'Veggies — Dog-Free',pot:'#12 — 15" orange plastic round',status:'⚠ Severe leaf curl and distortion — priority concern, possible pest or virus',toxic:false},
+  {id:'o45',name:'Chili Pepper',sub:'Garden Salsa',sci:'Capsicum annuum',type:'outdoor',loc:'Veggies — Dog-Free',pot:'#18 — 10" orange plastic round',status:'⚠ THRIPS/BROAD MITE — puckered cupped foliage, treat immediately',toxic:false},
+  {id:'o46',name:'Chili Pepper',sub:'Jalapeño',sci:'Capsicum annuum',type:'outdoor',loc:'Veggies — Dog-Free',pot:'#19 — 10" orange plastic round',status:'Healthy — bushy, multiple flower buds, peppers forming',toxic:false},
+  {id:'o52',name:'Slicing Cucumber',sub:'with tag',sci:'Cucumis sativus',type:'outdoor',loc:'Veggies — Dog-Free',pot:'#42 — 14" Panterra pot',status:'Healthy — small but growing, establishing',toxic:false},
+  {id:'o53',name:'Slicing Cucumber',sub:'no tag',sci:'Cucumis sativus',type:'outdoor',loc:'Veggies — Dog-Free',pot:'#43 — 14" Panterra pot',status:'⚠ Possible powdery mildew on cotyledons — monitor closely',toxic:false},
+  {id:'o19',name:'Oregano',sub:'Italian (Survivor)',sci:'Origanum vulgare',type:'outdoor',loc:'Culinary Herbs — Dog-Free',pot:'#15 — sage-green ceramic 11"',status:'⚠ THRIPS — treat with Safer Brand insecticidal soap every 5-7 days x3 rounds',toxic:false},
+  {id:'o20',name:'Bay Laurel',sub:'Variegated Willow Leaf',sci:"Laurus nobilis 'Willow Leaf'",type:'outdoor',loc:'Culinary Herbs — Dog-Free',pot:'#8 — 17" black plastic round',status:'⭐ Thriving — massive, dark glossy leaves, very full',toxic:false},
+  {id:'o21',name:'Chives',sci:'Allium schoenoprasum',type:'outdoor',loc:'Culinary Herbs — Dog-Free',pot:'#16 — 13" terracotta round',status:'Healthy — sparse, regrowing from base. New shoots coming up',toxic:false},
+  {id:'o42',name:'Marjoram',sub:'Transplanted from cedar planter',sci:'Origanum majorana',type:'outdoor',loc:'Culinary Herbs — Dog-Free',pot:'#38 — 7" square plastic',status:'⚠ Borderline — tiny shoots, barely hanging on. Consider moving to elevated herb planter',toxic:false},
+  {id:'o18',name:'Lavender Intermedia',sci:'Lavandula × intermedia',type:'outdoor',loc:'Medicinal & Specialty — Dog-Free',pot:'#13 — 13" orange plastic square',status:'⭐ Recovering well — tall bloom spikes, full silver-green foliage',toxic:false},
+  {id:'o65',name:'Lavender Cuttings',sub:'From o18 Lavender Intermedia',sci:'Lavandula × intermedia',type:'outdoor',loc:'Medicinal & Specialty — Dog-Free',pot:'#39 — 8" round gray basalt',status:'⚠ Rooting attempt — sparse thin shoots visible. Outcome uncertain',toxic:false},
+  {id:'o23',name:'Bay Laurel',sub:'Sweet Leaf',sci:'Laurus nobilis',type:'outdoor',loc:'Medicinal & Specialty — Dog-Free',pot:'#20 — 16" weathered concrete bowl',status:'Healthy — small but establishing steadily',toxic:false},
+  {id:'o24',name:'Lemon Balm',sci:'Melissa officinalis',type:'outdoor',loc:'Medicinal & Specialty — Dog-Free',pot:'#21 — 14" white/cream concrete bowl',status:'Healthy — full, bushy, multiple crowns. Harvest regularly',toxic:false},
+  {id:'o25',name:'Yarrow',sci:'Achillea millefolium',type:'outdoor',loc:'Medicinal & Specialty — Dog-Free',pot:'#22 — 10" orange ceramic round',status:'⭐ Thriving — multiple flower heads forming, yellow/cream blooms opening',toxic:false},
+  {id:'o26',name:'Chamomile',sci:'Matricaria chamomilla',type:'outdoor',loc:'Medicinal & Specialty — Dog-Free',pot:'#23 — 11" sage-green ceramic bowl',status:'⭐ Thriving — fully blooming. Harvest open flowers, pinch regularly',toxic:false},
+  {id:'o27',name:'Santa Cruz Oregano',sub:'Ornamental',sci:"Origanum 'Santa Cruz'",type:'outdoor',loc:'Medicinal & Specialty — Dog-Free',pot:'Blue urn pot',status:'Healthy — sprawling nicely, ornamental trailing habit',toxic:false},
+  {id:'o28',name:'Rosemary Prostratus',sci:"Salvia rosmarinus 'Prostratus'",type:'outdoor',loc:'Medicinal & Specialty — Dog-Free',pot:'#25 — teal ceramic on iron stand',status:'Healthy — full, spreading well',toxic:false},
+  {id:'o30',name:'Calendula',sub:'Zeolights',sci:'Calendula officinalis',type:'outdoor',loc:'Medicinal & Specialty — Dog-Free',pot:'#34 — 22"×11" black rectangle #2',status:'⚠ Insufficient light — pale, floppy rosettes. Move to sunnier location',toxic:false},
+  {id:'o41',name:'Echinacea',sub:'Pale Purple Coneflower',sci:'Echinacea pallida',type:'outdoor',loc:'Medicinal & Specialty — Dog-Free',pot:'#37 — 11" round terracotta',status:'Healthy — strong strap-like foliage, blooms expected later summer',toxic:false},
+  {id:'o29',name:'Pineapple Sage',sci:'Salvia elegans',type:'outdoor',loc:'Ornamentals — Dog-Free',pot:'#26 — 9" white/cream ceramic bowl',status:'⭐ Thriving — blooming with red tubular flowers, full and bushy',toxic:false},
+  {id:'o59',name:'Dusty Miller + Celosia + Portulaca',sub:'Silverdust / Magenta Plume / Happy Hour Coconut',sci:'Jacobaea maritima / Celosia argentea / Portulaca grandiflora',type:'outdoor',loc:'Ornamentals — Dog-Free',pot:'#27 — 10" blue plastic round',status:'Healthy — all three present, Dusty Miller full, Celosia plume emerging, Portulaca blooming',toxic:false},
+  {id:'o33',name:'Marigolds',sub:'Bananza Survivors + French Marigold Seeds',sci:'Tagetes erecta / patula',type:'outdoor',loc:'Ornamentals — Dog-Free',pot:'#31 — 34"×7" black rectangle #2',status:'⚠ Sparse — mostly bare, seeds not establishing well. Consider replanting',toxic:false},
+  {id:'o34',name:'Violas',sub:'Purple / Red-Orange / Blue',sci:'Viola sp.',type:'outdoor',loc:'Ornamentals — Dog-Free',pot:'#32 — 34"×7" black rectangle #3',status:'Healthy — colorful violas blooming, foliage filling in',toxic:false},
+  {id:'o60',name:'Blackberry',sub:'Taste of Heaven',sci:"Rubus 'Ponca'",type:'outdoor',loc:'Berries — Dog-Free',pot:'In-ground along fence line',status:'Healthy — bushy spreading habit, white flower visible, establishing in-ground',toxic:false},
+  {id:'o61',name:'Blackberry',sub:'Von',sci:"Rubus 'Von'",type:'outdoor',loc:'Berries — Dog-Free',pot:'In-ground along fence line',status:'Healthy — tall vigorous upright cane. Tie to fence for wind support',toxic:false},
+  {id:'o62',name:'Blueberry',sub:'Tifblue',sci:"Vaccinium corymbosum 'Tifblue'",type:'outdoor',loc:'Berries — Dog-Free',pot:'25-gal VIVOSUN fabric grow bag',status:'Healthy — establishing, green berry cluster visible',toxic:false},
+  {id:'o63',name:'Blueberry',sub:'Powderblue Rabbiteye',sci:"Vaccinium ashei 'Powderblue'",type:'outdoor',loc:'Berries — Dog-Free',pot:'25-gal VIVOSUN fabric grow bag',status:'Healthy — establishing, small green berries forming',toxic:false},
+  {id:'o32',name:'Hummingbird Mix + Pollinator Flower Blend',sub:'Mixed Seeds',sci:'Mixed wildflower species',type:'outdoor',loc:'Front Porch',pot:'#30 — 34"×7" black rectangle',status:'Germinating — sparse seedlings on left end, right side still bare',toxic:false},
+  {id:'o39',name:'Foxglove',sub:'Arctic Fox Lemon Cream (Survivor)',sci:"Digitalis hybrida 'Balroxleam'",type:'outdoor',loc:'Foxgloves — Front Porch Only',pot:'#14 — 9" black plastic pot',status:'☠ TOXIC TO DOGS — bloom spike with yellow buds. Front porch only',toxic:true},
+  {id:'o40',name:'Foxglove',sub:'Camelot Rose',sci:"Digitalis purpurea 'Camelot Rose'",type:'outdoor',loc:'Foxgloves — Front Porch Only',pot:'#28 — 8" ceramic',status:'☠ TOXIC TO DOGS — large rosette, bloom spike imminent. Front porch only',toxic:true},
+  {id:'o37',name:'Persian Lime Tree',sci:'Citrus × latifolia',type:'outdoor',loc:'Citrus Trees',pot:'#35 — large galvanized/wood planter',status:'Healthy — lush glossy foliage, vigorous new growth. Continue citrus fertilizer',toxic:false},
+  {id:'o38',name:'Meyer Lemon Tree',sci:'Citrus × meyeri',type:'outdoor',loc:'Citrus Trees',pot:'#36 — large galvanized/wood planter #2',status:'⭐ Thriving — white blooms, pink buds, multiple green fruit setting',toxic:false},
+  {id:'o66',name:'Mexican Heather + Mixed Petunia + Mixed Celosia',sub:'Cuphea hyssopifolia / Petunia sp. / Celosia sp.',sci:'Cuphea hyssopifolia / Petunia sp. / Celosia sp.',type:'outdoor',loc:'Ornamentals — Dog-Free',pot:'#45 — terracotta bowl',status:'Newly planted — all three establishing. Mexican Heather blooming purple. May 30.',toxic:false},
+  {id:'o67',name:'Paste Tomato',sub:'La Roma III Red',sci:'Solanum lycopersicum',type:'outdoor',loc:'Veggies — Dog-Free',pot:'#46 — 12" black plastic round',status:'Newly planted — tall leggy transplant. May 30.',toxic:false},
+  {id:'o68',name:'Paste Tomato',sub:'San Marzano',sci:'Solanum lycopersicum',type:'outdoor',loc:'Veggies — Dog-Free',pot:'#47 — 12" black plastic round',status:'Newly planted — establishing. May 30.',toxic:false},
+  {id:'o69',name:'Cilantro',sub:'×2 plants',sci:'Coriandrum sativum',type:'outdoor',loc:'Culinary Herbs — Dog-Free',pot:'#48 — 2.5 gal black plastic round',status:'⚠ Newly transplanted — wilty transplant stress. Keep moist and shaded briefly. May 30.',toxic:false},
+  {id:'o70',name:'Pepper + Oregano + Marigold Combo',sub:'Garden Salsa + Tabasco + Hot & Spicy Oregano + Marigold',sci:"Capsicum annuum 'Garden Salsa' / Capsicum frutescens 'Tabasco' / Origanum vulgare 'Hot & Spicy' / Tagetes sp.",type:'outdoor',loc:'Veggies — Dog-Free',pot:'#49 — gray textured round pot',status:'Newly planted combo — Garden Salsa fruiting, Tabasco present, Hot & Spicy Oregano trailing, Marigold blooming yellow. May 30.',toxic:false},
+  {id:'o71',name:'Pepper + Oregano + Marjoram + Marigold Combo',sub:'Anaheim + Italian Oregano + Marjoram + Marigold',sci:"Capsicum annuum 'Anaheim' / Origanum vulgare / Origanum majorana / Tagetes sp.",type:'outdoor',loc:'Veggies — Dog-Free',pot:'#50 — black/bronze ribbed round pot',status:'Newly planted combo — Anaheim pepper established, Italian Oregano blooming white, Marjoram present, Marigold blooming yellow. May 30.',toxic:false},
+  {id:'i37',name:'Raven ZZ Plant',sub:'Raven',sci:"Zamioculcas zamiifolia 'Raven'",type:'indoor',loc:'Family Room',pot:'White round ceramic self-watering (plant stand)',status:'Newly acquired — establishing. Dark near-black foliage, new growth emerges green then darkens. May 30.',toxic:true},
+];
+
+// ─── Seed runner ─────────────────────────────────────────────────────────────
+const logEl = document.getElementById('log');
+function log(msg, cls) {
+  const span = document.createElement('span');
+  if (cls) span.className = cls;
+  span.textContent = msg + '\n';
+  logEl.appendChild(span);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+document.getElementById('go').addEventListener('click', async () => {
+  const url = document.getElementById('url').value.trim();
+  const key = document.getElementById('key').value.trim();
+  const pass = document.getElementById('pass').value;
+  if (!url || !key || !pass) { log('Fill in URL, key, and passphrase.', 'err'); return; }
+
+  const btn = document.getElementById('go');
+  btn.disabled = true;
+  logEl.textContent = '';
+
+  const sb = supabase.createClient(url, key, {
+    global: { headers: { 'x-plant-key': pass } }
+  });
+
+  log(`Seeding ${PLANTS.length} plants…`);
+
+  const rows = PLANTS.map((p, i) => ({
+    id: p.id,
+    name: p.name,
+    sub: p.sub || null,
+    sci: p.sci || null,
+    type: p.type,
+    loc: p.loc,
+    pot: p.pot || null,
+    status: p.status || null,
+    toxic: !!p.toxic,
+    sort_order: i,
+  }));
+
+  const { data, error } = await sb.from('plants').upsert(rows, { onConflict: 'id' });
+
+  if (error) {
+    log('FAILED: ' + error.message, 'err');
+    log(JSON.stringify(error, null, 2));
+    if (error.message && error.message.toLowerCase().includes('row-level security')) {
+      log('\nHint: this usually means the passphrase doesn\'t match the one in plant_key_ok() in the migration.', 'err');
+    }
+  } else {
+    log(`OK — ${PLANTS.length} plants seeded (or upserted).`, 'ok');
+    log('\nNext: open index.html in your browser and confirm plants still show up.');
+  }
+  btn.disabled = false;
+});
+</script>
+</body>
+</html>
