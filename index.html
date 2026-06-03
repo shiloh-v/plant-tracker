@@ -363,21 +363,40 @@ function promptPassphrase(reason) {
   });
 }
 
-// Runs a Supabase write. If it fails with an RLS/auth error, prompts for the
-// passphrase and retries once. `label` shows in the prompt for context.
-async function withKey(label, fn) {
+// Runs a Supabase write. Re-prompts for the passphrase + retries on:
+//   - an explicit RLS / auth error (INSERT path), or
+//   - a "success" response with zero rows back from an UPDATE/UPSERT, which
+//     is how RLS USING-clause failures look to the client (no error, just
+//     filtered to 0 rows). Pass {expectRows: true} on UPDATE/UPSERT calls
+//     to enable this check. Caller must include .select() so we get data.
+async function withKey(label, fn, opts = {}) {
+  const expectRows = !!opts.expectRows;
   let res = await fn();
-  const e = res && res.error;
-  const looksAuth = e && (
-    /row-level security|unauthorized|jwt|policy|forbidden|new row violates/i.test(e.message || '') ||
-    e.statusCode === '403' || e.statusCode === 403 || e.code === '42501'
-  );
-  if (looksAuth) {
-    const ok = await promptPassphrase('Passphrase needed to ' + label + '.');
-    if (!ok) return res;
+  const looksAuth = isAuthError(res?.error);
+  const silentEmpty = !res?.error && expectRows && Array.isArray(res?.data) && res.data.length === 0;
+  if (looksAuth || silentEmpty) {
+    const reason = silentEmpty
+      ? 'Save didn\'t take — your passphrase may not match the server. Enter it again to ' + label + '.'
+      : 'Passphrase needed to ' + label + '.';
+    const ok = await promptPassphrase(reason);
+    if (!ok) {
+      return silentEmpty
+        ? { ...res, error: { message: 'No changes saved — passphrase rejected (UPDATE returned 0 rows).' } }
+        : res;
+    }
     res = await fn();
+    // Still silently empty after retry → surface as an explicit error
+    if (!res?.error && expectRows && Array.isArray(res?.data) && res.data.length === 0) {
+      res = { ...res, error: { message: 'Still no rows updated after retry — passphrase still wrong, or row doesn\'t exist.' } };
+    }
   }
   return res;
+}
+
+function isAuthError(e) {
+  if (!e) return false;
+  return /row-level security|unauthorized|jwt|policy|forbidden|new row violates/i.test(e.message || '')
+      || e.statusCode === '403' || e.statusCode === 403 || e.code === '42501';
 }
 
 // ── Status theming ──────────────────────────────────────────────────────────
@@ -781,7 +800,8 @@ async function saveOverride() {
   const row = { id: selectedId, status, notes, photo_ts: existing.photo_ts || null, updated_at: new Date().toISOString() };
 
   const { error } = await withKey('save status & notes', () =>
-    sb.from('plant_overrides').upsert(row)
+    sb.from('plant_overrides').upsert(row).select(),
+    { expectRows: true }
   );
   if (!error) {
     overrides[selectedId] = row;
@@ -832,7 +852,7 @@ async function uploadPhoto(file) {
     // Save timestamp to DB
     const existing = overrides[selectedId] || { id: selectedId };
     const row = { ...existing, photo_ts: ts, updated_at: new Date().toISOString() };
-    await withKey('record photo timestamp', () => sb.from('plant_overrides').upsert(row));
+    await withKey('record photo timestamp', () => sb.from('plant_overrides').upsert(row).select(), { expectRows: true });
     overrides[selectedId] = row;
 
     // Refresh photo and history strip in modal
@@ -1039,9 +1059,9 @@ async function savePlant() {
   if (formMode === 'add') {
     row.sort_order = PLANTS.length;   // append at end
     row.status = status;
-    res = await withKey('add plant', () => sb.from('plants').insert(row));
+    res = await withKey('add plant', () => sb.from('plants').insert(row).select(), { expectRows: true });
   } else {
-    res = await withKey('update plant', () => sb.from('plants').update(row).eq('id', formEditingId));
+    res = await withKey('update plant', () => sb.from('plants').update(row).eq('id', formEditingId).select(), { expectRows: true });
   }
 
   if (res.error) {
@@ -1071,7 +1091,8 @@ async function archivePlant() {
   btn.disabled = true;
 
   const { error } = await withKey('archive plant', () =>
-    sb.from('plants').update({ archived_at: new Date().toISOString() }).eq('id', selectedId)
+    sb.from('plants').update({ archived_at: new Date().toISOString() }).eq('id', selectedId).select(),
+    { expectRows: true }
   );
 
   if (error) {
