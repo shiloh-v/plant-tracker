@@ -53,9 +53,10 @@
   #grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; margin-top: 6px; }
 
   .pcard { background: var(--cream); border: 1px solid var(--border); border-radius: 14px; overflow: visible; box-shadow: 0 2px 6px rgba(0,0,0,.05); display: flex; flex-direction: column; position: relative; }
-  .pcard.skipped { opacity: .45; }
+  .pcard.skipped { opacity: .55; }
   .pcard.done { border-color: var(--good-fg); }
   .pcard.failed { border-color: var(--danger-fg); }
+  .pcard.duplicate { border-color: #f59e0b; }
 
   .pcard-photo { height: 160px; background: var(--photo-bg); border-radius: 13px 13px 0 0; overflow: hidden; display: flex; align-items: center; justify-content: center; position: relative; }
   .pcard-photo img { width: 100%; height: 100%; object-fit: cover; }
@@ -70,6 +71,8 @@
   .badge.done       { background: var(--good-bg); color: var(--good-fg); }
   .badge.failed     { background: var(--danger-bg); color: var(--danger-fg); }
   .badge.skipped    { background: var(--soft); color: var(--muted); }
+  .badge.duplicate  { background: #fde68a; color: #92400e; }
+  .badge.checking   { background: var(--soft); color: var(--muted); }
 
   .pcard-fname { font-size: 10px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .pcard-ts { font-size: 10px; color: var(--muted); }
@@ -90,8 +93,10 @@
 
   .skip-btn { background: var(--soft); color: var(--muted); border: none; border-radius: 8px; padding: 5px 8px; font-size: 11px; font-weight: 700; font-family: inherit; cursor: pointer; }
   .skip-btn:hover { background: var(--border); }
+  .force-btn { background: var(--cream); color: var(--green); border: 1.5px solid var(--green); border-radius: 8px; padding: 4px 8px; font-size: 11px; font-weight: 700; font-family: inherit; cursor: pointer; white-space: nowrap; }
 
   .pcard-err { font-size: 11px; color: var(--danger-fg); background: var(--danger-bg); border-radius: 6px; padding: 4px 7px; line-height: 1.3; }
+  .pcard-note { font-size: 11px; color: #92400e; background: #fde68a; border-radius: 6px; padding: 4px 7px; line-height: 1.3; }
 
   #toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: rgba(30,26,18,.92); color: white; padding: 10px 18px; border-radius: 22px; font-size: 13px; font-weight: 600; z-index: 400; box-shadow: 0 4px 14px rgba(0,0,0,.35); }
 
@@ -288,7 +293,29 @@ async function extractPhotoDate(file) {
 
 // ── State ───────────────────────────────────────────────────────────────────
 let nextCardId = 1;
-let cards = [];   // { uid, file, previewUrl, plantId, status, errorMsg, ts, tsSource }
+let cards = [];   // { uid, file, previewUrl, plantId, status, errorMsg, ts, tsSource, tsReady, sha, force }
+
+// Cache of {plantId -> Set<filename>} so we can detect filename collisions
+// without re-listing the bucket for every card the user assigns.
+const existingFiles = new Map();
+async function listExistingForPlant(plantId) {
+  if (existingFiles.has(plantId)) return existingFiles.get(plantId);
+  const { data, error } = await sb.storage.from(BUCKET).list(plantId, { limit: 1000 });
+  if (error) {
+    console.warn('list failed for', plantId, error);
+    existingFiles.set(plantId, new Set());
+    return existingFiles.get(plantId);
+  }
+  const set = new Set((data || []).filter(f => f.name.endsWith('.jpg')).map(f => f.name));
+  existingFiles.set(plantId, set);
+  return set;
+}
+
+async function sha256Hex(blob) {
+  const buf = await blob.arrayBuffer();
+  const hash = await crypto.subtle.digest('SHA-256', buf);
+  return [...new Uint8Array(hash)].map(b => b.toString(16).padStart(2, '0')).join('');
+}
 
 function showToast(msg, ms) {
   const ex = document.getElementById('toast');
@@ -319,16 +346,62 @@ async function addFiles(fileList) {
     cards.push(card);
   }
   renderGrid();
-  // Pull EXIF dates in the background so they appear without blocking the UI
+  // Pull EXIF dates in the background so they appear without blocking the UI.
+  // Stash the promise so dedup checks can wait for it before deciding.
   for (const c of cards) {
-    if (c.ts != null || c.tsSource === 'pending') continue;
+    if (c.tsReady) continue;
     c.tsSource = 'pending';
-    extractPhotoDate(c.file).then(r => {
+    c.tsReady = extractPhotoDate(c.file).then(r => {
       c.ts = r.ts;
       c.tsSource = r.source || 'upload-time';
       const el = document.querySelector('.pcard[data-uid="' + c.uid + '"] .pcard-ts');
       if (el) el.textContent = formatTs(c);
     });
+  }
+}
+
+// ── Dedup ───────────────────────────────────────────────────────────────────
+// Two checks run when a plant is assigned to a card:
+//   1. Filename collision — same EXIF date already in the plant's folder
+//   2. SHA-256 — same image already on another card targeting this plant
+// User can override with "Upload anyway" (sets card.force).
+async function checkDuplicate(card) {
+  if (card.status !== 'ready' || card.force) return;
+  const plantId = card.plantId;
+
+  if (card.tsReady) await card.tsReady;
+  if (card.plantId !== plantId || card.status !== 'ready') return;
+
+  // 1. Filename collision against the plant's existing folder
+  if (card.ts != null) {
+    const existing = await listExistingForPlant(plantId);
+    if (card.plantId !== plantId || card.status !== 'ready') return;
+    const candidate = card.ts + '.jpg';
+    if (existing.has(candidate)) {
+      card.status = 'duplicate';
+      card.errorMsg = 'Same EXIF date already uploaded to this plant (' + candidate + ')';
+      renderCard(card);
+      updateSummary();
+      return;
+    }
+  }
+
+  // 2. SHA-256 against other cards on the same plant
+  if (!card.sha) {
+    card.sha = await sha256Hex(card.file);
+  }
+  if (card.plantId !== plantId || card.status !== 'ready') return;
+  const earlier = cards.find(c =>
+    c.uid !== card.uid &&
+    c.plantId === plantId &&
+    c.sha && c.sha === card.sha &&
+    (c.status === 'ready' || c.status === 'uploading' || c.status === 'done')
+  );
+  if (earlier) {
+    card.status = 'duplicate';
+    card.errorMsg = 'Same image as another card on this plant (' + earlier.file.name + ')';
+    renderCard(card);
+    updateSummary();
   }
 }
 
@@ -391,13 +464,15 @@ function buildCombobox(card) {
 
   function pick(p) {
     card.plantId = p.id;
-    if (card.status === 'unassigned' || card.status === 'failed') {
+    if (card.status === 'unassigned' || card.status === 'failed' || card.status === 'duplicate') {
       card.status = 'ready';
       card.errorMsg = '';
+      card.force = false;
     }
     close();
     renderCard(card);
     updateSummary();
+    checkDuplicate(card);
   }
 
   input.addEventListener('focus', () => { activeIdx = 0; open(); });
@@ -443,6 +518,7 @@ function badgeFor(card) {
     done:       ['done', '✓ Done'],
     failed:     ['failed', '✗ Failed'],
     skipped:    ['skipped', 'Skipped'],
+    duplicate:  ['duplicate', '⚠ Duplicate'],
   };
   const [cls, label] = map[card.status] || map.unassigned;
   return '<span class="badge ' + cls + '">' + label + '</span>';
@@ -457,8 +533,14 @@ function renderCard(card) {
 
 function buildCard(card) {
   const el = document.createElement('div');
-  el.className = 'pcard' + (card.status === 'skipped' ? ' skipped' : '') + (card.status === 'done' ? ' done' : '') + (card.status === 'failed' ? ' failed' : '');
+  const stateCls =
+    (card.status === 'skipped'   ? ' skipped'   : '') +
+    (card.status === 'done'      ? ' done'      : '') +
+    (card.status === 'failed'    ? ' failed'    : '') +
+    (card.status === 'duplicate' ? ' duplicate' : '');
+  el.className = 'pcard' + stateCls;
   el.dataset.uid = card.uid;
+  const msgClass = card.status === 'duplicate' ? 'pcard-note' : 'pcard-err';
   el.innerHTML =
     '<div class="pcard-photo">' +
       '<img src="' + card.previewUrl + '" alt="">' +
@@ -472,9 +554,12 @@ function buildCard(card) {
           '<div class="pcard-fname" title="' + esc(card.file.name) + '">' + esc(card.file.name) + '</div>' +
           '<div class="pcard-ts">' + formatTs(card) + '</div>' +
         '</div>' +
-        '<button class="skip-btn" type="button">' + (card.status === 'skipped' ? 'Unskip' : 'Skip') + '</button>' +
+        '<div style="display:flex;gap:6px;flex-shrink:0">' +
+          (card.status === 'duplicate' ? '<button class="force-btn" type="button">Upload anyway</button>' : '') +
+          '<button class="skip-btn" type="button">' + (card.status === 'skipped' ? 'Unskip' : 'Skip') + '</button>' +
+        '</div>' +
       '</div>' +
-      (card.errorMsg ? '<div class="pcard-err">' + esc(card.errorMsg) + '</div>' : '') +
+      (card.errorMsg ? '<div class="' + msgClass + '">' + esc(card.errorMsg) + '</div>' : '') +
     '</div>';
 
   el.querySelector('.combobox-slot').replaceWith(buildCombobox(card));
@@ -485,9 +570,18 @@ function buildCard(card) {
   el.querySelector('.skip-btn').addEventListener('click', () => {
     if (card.status === 'skipped') {
       card.status = card.plantId ? 'ready' : 'unassigned';
+      card.errorMsg = '';
     } else if (card.status !== 'uploading' && card.status !== 'done') {
       card.status = 'skipped';
     }
+    renderCard(card);
+    updateSummary();
+  });
+  const forceBtn = el.querySelector('.force-btn');
+  if (forceBtn) forceBtn.addEventListener('click', () => {
+    card.force = true;
+    card.status = 'ready';
+    card.errorMsg = '';
     renderCard(card);
     updateSummary();
   });
@@ -525,6 +619,7 @@ function updateSummary() {
   const done  = cards.filter(c => c.status === 'done').length;
   const failed = cards.filter(c => c.status === 'failed').length;
   const skipped = cards.filter(c => c.status === 'skipped').length;
+  const duplicate = cards.filter(c => c.status === 'duplicate').length;
   const unassigned = cards.filter(c => c.status === 'unassigned').length;
   const uploading = cards.filter(c => c.status === 'uploading').length;
   const bits = [];
@@ -533,6 +628,7 @@ function updateSummary() {
   if (uploading)  bits.push(uploading + ' uploading');
   if (done)       bits.push(done + ' done');
   if (failed)     bits.push(failed + ' failed');
+  if (duplicate)  bits.push(duplicate + ' duplicate');
   if (skipped)    bits.push(skipped + ' skipped');
   if (unassigned) bits.push(unassigned + ' unassigned');
   document.getElementById('summary').innerHTML = bits.join(' · ');
@@ -601,6 +697,11 @@ async function uploadCard(card, usedInBatch) {
         sb.from('plant_overrides').upsert(row).select(), { expectRows: true });
       if (res.error) throw new Error(res.error.message || 'Failed to record photo');
     });
+
+    // Keep the dedup cache in sync so the next card targeting this plant
+    // sees the file we just uploaded
+    const cache = existingFiles.get(plantId);
+    if (cache) cache.add(picked.name);
 
     card.status = 'done';
   } catch (err) {
