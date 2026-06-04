@@ -273,8 +273,9 @@
 <div id="cluster-overlay" class="hidden">
   <div id="cluster-panel">
     <button id="cluster-close" title="Close">×</button>
+    <button id="cluster-startover" title="Discard saved progress and start over" style="float:right;background:var(--soft);border:1px solid var(--border);border-radius:14px;font-size:11px;font-weight:700;padding:5px 10px;cursor:pointer;color:var(--muted);font-family:inherit;margin-right:6px">↺ Start over</button>
     <h2>🤖 Auto-cluster with AI</h2>
-    <div class="sub">First, AI groups your unassigned photos by which look like the same plant. Then you label each group with a plant. Nothing's sent to the API until you press a button here.</div>
+    <div class="sub">First, AI groups your unassigned photos by which look like the same plant. Then you label each group with a plant. Nothing's sent to the API until you press a button here. <strong>Progress saves automatically</strong> — you can close this panel and come back without losing what you've already paid for.</div>
     <div id="cluster-steps"></div>
   </div>
 </div>
@@ -1215,11 +1216,14 @@ async function restoreFromIDB() {
 //                         Apply commits cards in labeled clusters; unlabeled
 //                         clusters stay as unassigned cards.
 //
-const MATCH_BATCH_SIZE = 12;
-const MATCH_TEST_SIZE  = 30;         // bigger test batch for clustering — need enough photos to see groups form
-const CARD_THUMB_PX    = 500;
-const CENTROID_THUMB_PX = 350;       // centroids of growing cluster list — smaller to keep token cost down
-const DHASH_THRESHOLD  = 5;          // <=5 bits diff out of 64 → "near-duplicate"
+const MATCH_BATCH_SIZE  = 6;         // smaller batches so payload stays under Vercel's 4.5MB cap
+const MATCH_TEST_SIZE   = 30;        // bigger test batch for clustering — need enough photos to see groups form
+const CARD_THUMB_PX     = 400;       // fresh card images per call
+const CARD_THUMB_QUALITY = 0.72;
+const CENTROID_THUMB_PX = 180;       // shrunk hard — the centroid list grows every batch
+const CENTROID_THUMB_QUALITY = 0.55;
+const MAX_CENTROIDS     = 50;        // cap centroids per call; biggest clusters win the slots
+const DHASH_THRESHOLD   = 5;         // <=5 bits diff out of 64 → "near-duplicate"
 
 let clusterState = null;             // see resetClusterState()
 
@@ -1228,8 +1232,8 @@ function resetClusterState() {
     step: 'idle',                    // idle | dedup-done | tested | clustered
     groups: [],                      // [[uid, uid, ...]] — first is representative
     repByUid: new Map(),             // uid -> representativeUid
-    thumbCache: new Map(),           // uid -> dataUrl (500px JPEG)
-    centroidCache: new Map(),        // uid -> dataUrl (350px JPEG, for centroids sent to API)
+    thumbCache: new Map(),           // uid -> dataUrl (400px JPEG) — not persisted, regenerated
+    centroidCache: new Map(),        // uid -> dataUrl (180px JPEG) — not persisted, regenerated
     clusters: new Map(),             // clusterId -> { id, label, repUids: [], plantId: '' }
     cardCluster: new Map(),          // repUid -> clusterId
     cardNotes: new Map(),            // repUid -> { confidence, note }
@@ -1241,6 +1245,77 @@ function resetClusterState() {
     fullUsage: null,
     error: null,
   };
+}
+
+// ── Cluster session persistence ─────────────────────────────────────────────
+// Saves to localStorage after every successful API batch so partial progress
+// survives a 413, a closed tab, or any other interruption. Image caches are
+// NOT persisted — they're rebuilt from card files on demand.
+const CLUSTER_SAVE_KEY = 'plant-tracker-cluster-session-v1';
+
+function buildRepByUid(groups) {
+  const m = new Map();
+  for (const g of groups) for (const uid of g) m.set(uid, g[0]);
+  return m;
+}
+
+function serializeClusterState() {
+  if (!clusterState) return null;
+  return {
+    step: clusterState.step,
+    groups: clusterState.groups,
+    clusters: [...clusterState.clusters.values()],
+    cardCluster: [...clusterState.cardCluster.entries()],
+    cardNotes: [...clusterState.cardNotes.entries()],
+    nextClusterId: clusterState.nextClusterId,
+    rejected: [...clusterState.rejected],
+    excludedCards: [...clusterState.excludedCards],
+    dedupResult: clusterState.dedupResult,
+    testUsage: clusterState.testUsage,
+    testRepCount: clusterState.testRepCount,
+    testClusterCount: clusterState.testClusterCount,
+    fullUsage: clusterState.fullUsage,
+    savedAt: Date.now(),
+  };
+}
+function deserializeClusterState(d) {
+  return {
+    step: d.step || 'idle',
+    groups: d.groups || [],
+    repByUid: buildRepByUid(d.groups || []),
+    thumbCache: new Map(),
+    centroidCache: new Map(),
+    clusters: new Map((d.clusters || []).map(c => [c.id, c])),
+    cardCluster: new Map(d.cardCluster || []),
+    cardNotes: new Map(d.cardNotes || []),
+    nextClusterId: d.nextClusterId || 1,
+    rejected: new Set(d.rejected || []),
+    excludedCards: new Set(d.excludedCards || []),
+    dedupResult: d.dedupResult || null,
+    testUsage: d.testUsage || null,
+    testRepCount: d.testRepCount || 0,
+    testClusterCount: d.testClusterCount || 0,
+    fullUsage: d.fullUsage || null,
+    savedAt: d.savedAt || null,
+    error: null,
+  };
+}
+function persistClusterSession() {
+  try {
+    const data = serializeClusterState();
+    if (!data) return;
+    localStorage.setItem(CLUSTER_SAVE_KEY, JSON.stringify(data));
+  } catch (e) { console.warn('persist cluster session failed:', e); }
+}
+function loadPersistedClusterSession() {
+  try {
+    const raw = localStorage.getItem(CLUSTER_SAVE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch (e) { return null; }
+}
+function clearPersistedClusterSession() {
+  try { localStorage.removeItem(CLUSTER_SAVE_KEY); } catch (e) {}
 }
 
 // ── dHash (difference hash) — 64-bit perceptual hash ────────────────────────
@@ -1340,11 +1415,11 @@ async function getCardThumbDataUrl(uid) {
   const card = cards.find(c => c.uid === uid);
   if (!card) return null;
   const img = await loadImageFromFile(card.file);
-  const dataUrl = thumbnailToDataUrl(img, CARD_THUMB_PX, 0.78);
+  const dataUrl = thumbnailToDataUrl(img, CARD_THUMB_PX, CARD_THUMB_QUALITY);
   clusterState.thumbCache.set(uid, dataUrl);
   // Also cache a smaller centroid version while we have the image decoded
   if (!clusterState.centroidCache.has(uid)) {
-    clusterState.centroidCache.set(uid, thumbnailToDataUrl(img, CENTROID_THUMB_PX, 0.7));
+    clusterState.centroidCache.set(uid, thumbnailToDataUrl(img, CENTROID_THUMB_PX, CENTROID_THUMB_QUALITY));
   }
   return dataUrl;
 }
@@ -1354,7 +1429,7 @@ async function getCentroidDataUrl(uid) {
   const card = cards.find(c => c.uid === uid);
   if (!card) return null;
   const img = await loadImageFromFile(card.file);
-  const dataUrl = thumbnailToDataUrl(img, CENTROID_THUMB_PX, 0.7);
+  const dataUrl = thumbnailToDataUrl(img, CENTROID_THUMB_PX, CENTROID_THUMB_QUALITY);
   clusterState.centroidCache.set(uid, dataUrl);
   return dataUrl;
 }
@@ -1387,10 +1462,16 @@ async function runClusterBatches(repUids, onProgress) {
       continue;
     }
 
-    // Build the existing-clusters payload (stable-ordered by id)
+    // Build the existing-clusters payload. We cap to MAX_CENTROIDS, picking
+    // the largest clusters first so the most-common plants stay represented.
+    // Then we sort by id ascending so the prefix is stable for Anthropic's
+    // prompt cache.
+    const allClusters = [...clusterState.clusters.values()];
+    allClusters.sort((a, b) => b.repUids.length - a.repUids.length);
+    const picked = allClusters.slice(0, MAX_CENTROIDS);
+    picked.sort((a, b) => a.id - b.id);
     const existingClusters = [];
-    const sortedClusters = [...clusterState.clusters.values()].sort((a, b) => a.id - b.id);
-    for (const c of sortedClusters) {
+    for (const c of picked) {
       const centroidUid = c.repUids[0];
       const centroidData = await getCentroidDataUrl(centroidUid);
       if (!centroidData) continue;
@@ -1420,6 +1501,7 @@ async function runClusterBatches(repUids, onProgress) {
             ingestClusterAssignments(r.assignments || []);
             mergeUsage(totalUsage, r.usage);
             batchesDone++;
+            persistClusterSession();
             onProgress?.(batchesDone, batches.length, totalUsage);
             continue;
           }
@@ -1431,6 +1513,7 @@ async function runClusterBatches(repUids, onProgress) {
     ingestClusterAssignments(r.assignments || []);
     mergeUsage(totalUsage, r.usage);
     batchesDone++;
+    persistClusterSession();   // save partial progress after every successful batch
     onProgress?.(batchesDone, batches.length, totalUsage);
   }
   return totalUsage;
@@ -1896,6 +1979,7 @@ async function handleStepClick(step) {
       renderClusterPanel();
       s.dedupResult = await runDedup((d, t) => { s.progress = { label: 'Hashing photos…', done: d, total: t }; renderClusterPanel(); });
       s.progress = null;
+      persistClusterSession();
       renderClusterPanel();
     } else if (step === 'test') {
       // Sample MATCH_TEST_SIZE random representatives
@@ -1909,12 +1993,14 @@ async function handleStepClick(step) {
       s.testClusterCount = clusterState.clusters.size;
       s.step = 'tested';
       s.progress = null;
+      persistClusterSession();
       renderClusterPanel();
     } else if (step === 'skip-test') {
       s.skipTest = true;
       s.testRepCount = 0;
       s.testClusterCount = 0;
       s.step = 'tested';
+      persistClusterSession();
       renderClusterPanel();
     } else if (step === 'full') {
       // Run only reps that haven't been clustered yet (test reps already are)
@@ -1925,16 +2011,28 @@ async function handleStepClick(step) {
       s.fullUsage = usage;
       s.step = 'clustered';
       s.progress = null;
+      persistClusterSession();
       renderClusterPanel();
     } else if (step === 'apply') {
       applyClusterLabels();
+      clearPersistedClusterSession();
       closeClusterPanel();
     } else if (step === 'discard') {
-      closeClusterPanel();
+      if (confirm('Discard the current clustering session? You\'ll lose all the AI groupings.')) {
+        clearPersistedClusterSession();
+        closeClusterPanel();
+      }
+    } else if (step === 'start-over') {
+      if (confirm('Start over and discard the current clustering session?')) {
+        clearPersistedClusterSession();
+        resetClusterState();
+        renderClusterPanel();
+      }
     }
   } catch (err) {
     s.progress = null;
     s.error = err.message || String(err);
+    persistClusterSession();  // even on error — what we already did is worth keeping
     renderClusterPanel();
   }
 }
@@ -1949,7 +2047,14 @@ function shuffle(arr) {
 }
 
 function openClusterPanel() {
-  resetClusterState();
+  // Restore any saved partial session — survives errors, reloads, tab close
+  const saved = loadPersistedClusterSession();
+  if (saved && saved.step && saved.step !== 'idle') {
+    clusterState = deserializeClusterState(saved);
+    showToast('Resumed clustering session from where you left off', 2500);
+  } else {
+    resetClusterState();
+  }
   document.getElementById('cluster-overlay').classList.remove('hidden');
   renderClusterPanel();
 }
@@ -1965,6 +2070,7 @@ document.getElementById('auto-cluster').addEventListener('click', () => {
   openClusterPanel();
 });
 document.getElementById('cluster-close').addEventListener('click', closeClusterPanel);
+document.getElementById('cluster-startover').addEventListener('click', () => handleStepClick('start-over'));
 document.getElementById('cluster-overlay').addEventListener('click', e => {
   if (e.target === document.getElementById('cluster-overlay')) closeClusterPanel();
 });
