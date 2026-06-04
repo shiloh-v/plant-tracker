@@ -1,0 +1,683 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bulk Photo Upload — Shiloh's Plants</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%93%B7%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,700&family=Nunito:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --green: #2d5a27;
+    --cream: #fffdf8;
+    --bg: #f4f0e8;
+    --border: #e0d8cc;
+    --muted: #7a7060;
+    --text: #1e1a12;
+    --soft: #f0ebe0;
+    --photo-bg: #e8e2d5;
+    --warn-bg: #fef3c7; --warn-fg: #b45309;
+    --danger-bg: #fee2e2; --danger-fg: #b91c1c;
+    --good-bg: #dcfce7; --good-fg: #15803d;
+    --info-bg: #dbeafe; --info-fg: #1d4ed8;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  html, body { font-family: 'Nunito', sans-serif; background: var(--bg); color: var(--text); min-height: 100%; }
+
+  #header { background: var(--green); color: white; padding: 16px 14px 14px; position: sticky; top: 0; z-index: 30; box-shadow: 0 2px 12px rgba(0,0,0,.22); }
+  .header-inner { max-width: 1400px; margin: 0 auto; display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .header-inner h1 { font-family: 'Fraunces', serif; font-size: 20px; font-weight: 700; letter-spacing: -.02em; }
+  #back-link { color: rgba(255,255,255,.85); font-size: 12px; font-weight: 700; text-decoration: none; padding: 4px 11px; border-radius: 16px; background: rgba(255,255,255,.18); }
+  .upload-all-btn { background: var(--cream); color: var(--green); border: none; border-radius: 18px; padding: 8px 16px; font-size: 13px; font-weight: 700; font-family: inherit; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,.18); }
+  .upload-all-btn:disabled { opacity: .45; cursor: not-allowed; }
+  .ghost-btn { background: rgba(255,255,255,.18); color: white; border: none; border-radius: 18px; padding: 8px 14px; font-size: 12px; font-weight: 700; font-family: inherit; cursor: pointer; }
+
+  #main { max-width: 1400px; margin: 0 auto; padding: 14px 12px 80px; }
+
+  #dropzone { background: var(--cream); border: 2px dashed var(--border); border-radius: 16px; padding: 30px 18px; text-align: center; cursor: pointer; transition: border-color .12s, background .12s; }
+  #dropzone.over { border-color: var(--green); background: #f8f5ec; }
+  #dropzone .icon { font-size: 40px; margin-bottom: 8px; }
+  #dropzone .title { font-family: 'Fraunces', serif; font-size: 18px; font-weight: 700; margin-bottom: 4px; }
+  #dropzone .sub { font-size: 13px; color: var(--muted); }
+  #dropzone .browse { display: inline-block; margin-top: 12px; background: var(--green); color: white; border: none; border-radius: 20px; padding: 9px 22px; font-size: 13px; font-weight: 700; font-family: inherit; cursor: pointer; }
+
+  #summary-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin: 16px 2px 8px; }
+  #summary { font-size: 13px; color: var(--muted); font-weight: 600; }
+  #summary strong { color: var(--text); }
+  .row-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .row-actions button { background: var(--cream); border: 1.5px solid var(--border); color: var(--text); border-radius: 16px; padding: 6px 12px; font-size: 12px; font-weight: 700; font-family: inherit; cursor: pointer; }
+  .row-actions .primary { background: var(--green); color: white; border-color: var(--green); }
+  .row-actions button:disabled { opacity: .4; cursor: not-allowed; }
+
+  #grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; margin-top: 6px; }
+
+  .pcard { background: var(--cream); border: 1px solid var(--border); border-radius: 14px; overflow: visible; box-shadow: 0 2px 6px rgba(0,0,0,.05); display: flex; flex-direction: column; position: relative; }
+  .pcard.skipped { opacity: .45; }
+  .pcard.done { border-color: var(--good-fg); }
+  .pcard.failed { border-color: var(--danger-fg); }
+
+  .pcard-photo { height: 160px; background: var(--photo-bg); border-radius: 13px 13px 0 0; overflow: hidden; display: flex; align-items: center; justify-content: center; position: relative; }
+  .pcard-photo img { width: 100%; height: 100%; object-fit: cover; }
+  .pcard-x { position: absolute; top: 6px; right: 6px; background: rgba(0,0,0,.55); color: white; border: none; border-radius: 50%; width: 26px; height: 26px; font-size: 14px; cursor: pointer; font-family: inherit; line-height: 1; padding: 0; display: flex; align-items: center; justify-content: center; }
+
+  .pcard-body { padding: 10px 11px 11px; display: flex; flex-direction: column; gap: 7px; }
+
+  .badge { align-self: flex-start; font-size: 10px; font-weight: 700; padding: 3px 8px; border-radius: 8px; }
+  .badge.unassigned { background: var(--soft); color: var(--muted); }
+  .badge.ready      { background: var(--info-bg); color: var(--info-fg); }
+  .badge.uploading  { background: var(--warn-bg); color: var(--warn-fg); }
+  .badge.done       { background: var(--good-bg); color: var(--good-fg); }
+  .badge.failed     { background: var(--danger-bg); color: var(--danger-fg); }
+  .badge.skipped    { background: var(--soft); color: var(--muted); }
+
+  .pcard-fname { font-size: 10px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pcard-ts { font-size: 10px; color: var(--muted); }
+
+  .combobox { position: relative; }
+  .combobox input { width: 100%; padding: 8px 28px 8px 10px; border-radius: 10px; border: 1.5px solid var(--border); background: white; font-size: 13px; font-family: inherit; outline: none; }
+  .combobox input:focus { border-color: var(--green); }
+  .combobox.has-pick input { border-color: var(--green); background: #f4faf2; }
+  .combobox .clear { position: absolute; top: 50%; right: 8px; transform: translateY(-50%); background: none; border: none; color: var(--muted); font-size: 14px; cursor: pointer; padding: 0; line-height: 1; }
+  .combobox .list { position: absolute; top: calc(100% + 4px); left: 0; right: 0; background: var(--cream); border: 1px solid var(--border); border-radius: 10px; max-height: 220px; overflow-y: auto; box-shadow: 0 6px 20px rgba(0,0,0,.18); z-index: 50; display: none; }
+  .combobox.open .list { display: block; }
+  .combobox .list .opt { padding: 8px 11px; font-size: 12.5px; cursor: pointer; border-bottom: 1px solid var(--border); }
+  .combobox .list .opt:last-child { border-bottom: none; }
+  .combobox .list .opt:hover, .combobox .list .opt.active { background: var(--soft); }
+  .combobox .opt-name { font-weight: 700; }
+  .combobox .opt-meta { font-size: 10.5px; color: var(--muted); margin-top: 1px; }
+  .combobox .empty { padding: 10px; font-size: 12px; color: var(--muted); text-align: center; }
+
+  .skip-btn { background: var(--soft); color: var(--muted); border: none; border-radius: 8px; padding: 5px 8px; font-size: 11px; font-weight: 700; font-family: inherit; cursor: pointer; }
+  .skip-btn:hover { background: var(--border); }
+
+  .pcard-err { font-size: 11px; color: var(--danger-fg); background: var(--danger-bg); border-radius: 6px; padding: 4px 7px; line-height: 1.3; }
+
+  #toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: rgba(30,26,18,.92); color: white; padding: 10px 18px; border-radius: 22px; font-size: 13px; font-weight: 600; z-index: 400; box-shadow: 0 4px 14px rgba(0,0,0,.35); }
+
+  /* Passphrase modal */
+  #pp-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 200; display: flex; align-items: center; justify-content: center; padding: 20px; }
+  .pp-box { background: var(--cream); border-radius: 14px; padding: 20px; max-width: 340px; width: 100%; font-family: inherit; }
+  .pp-title { font-family: 'Fraunces', serif; font-size: 18px; font-weight: 700; margin-bottom: 6px; }
+  .pp-sub { font-size: 13px; color: var(--muted); margin-bottom: 14px; }
+  .pp-input { width: 100%; padding: 10px 12px; border: 1.5px solid var(--border); border-radius: 10px; font-size: 14px; font-family: inherit; margin-bottom: 14px; }
+  .pp-row { display: flex; gap: 8px; }
+  .pp-row button { flex: 1; padding: 10px; border-radius: 10px; font-size: 14px; font-weight: 700; font-family: inherit; cursor: pointer; }
+  .pp-cancel { border: 1.5px solid var(--border); background: white; }
+  .pp-ok { border: none; background: var(--green); color: white; }
+</style>
+</head>
+<body>
+
+<div id="header">
+  <div class="header-inner">
+    <div style="display:flex;align-items:center;gap:12px">
+      <a id="back-link" href="index.html">← Back</a>
+      <h1>📷 Bulk Upload</h1>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <button id="upload-top" class="upload-all-btn" disabled>Upload All Ready</button>
+    </div>
+  </div>
+</div>
+
+<div id="main">
+  <div id="dropzone">
+    <div class="icon">🖼</div>
+    <div class="title">Drop photos here</div>
+    <div class="sub">…or click to choose. Pick any number — assign each to a plant on the next step.</div>
+    <button class="browse" type="button">Choose files</button>
+  </div>
+
+  <div id="summary-row" style="display:none">
+    <div id="summary"></div>
+    <div class="row-actions">
+      <button id="clear-done">Clear done</button>
+      <button id="clear-all">Clear all</button>
+      <button id="upload-bot" class="primary" disabled>Upload All Ready</button>
+    </div>
+  </div>
+
+  <div id="grid"></div>
+</div>
+
+<input type="file" id="file-input" accept="image/*" multiple style="display:none">
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/exifr@7.1.3/dist/full.umd.js"></script>
+<script>
+// ── Config (matches index.html) ─────────────────────────────────────────────
+const SUPABASE_URL = 'https://mfeebwaniooindqagwqt.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_Qd7TJXvaLerPAPayVJWxtg_hzqVJni7';
+const BUCKET       = 'plant-photos';
+const CONCURRENCY  = 3;
+
+// ── Supabase client w/ passphrase header (same pattern as index.html) ───────
+let plantKey = localStorage.getItem('plantKey') || '';
+let sb;
+function makeClient() {
+  sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+    global: { headers: plantKey ? { 'x-plant-key': plantKey } : {} }
+  });
+}
+makeClient();
+
+function promptPassphrase(reason) {
+  return new Promise(resolve => {
+    const o = document.createElement('div');
+    o.id = 'pp-overlay';
+    o.innerHTML =
+      '<div class="pp-box">' +
+        '<div class="pp-title">Passphrase required</div>' +
+        '<div class="pp-sub">' + (reason || 'Enter your passphrase to write to the database.') + '</div>' +
+        '<input type="password" class="pp-input" id="pp-input" placeholder="Passphrase">' +
+        '<div class="pp-row">' +
+          '<button class="pp-cancel" id="pp-cancel">Cancel</button>' +
+          '<button class="pp-ok" id="pp-ok">Save</button>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(o);
+    const input = o.querySelector('#pp-input');
+    input.focus();
+    const done = ok => { document.body.removeChild(o); resolve(ok); };
+    o.querySelector('#pp-cancel').onclick = () => done(false);
+    o.querySelector('#pp-ok').onclick = () => {
+      const v = input.value;
+      if (!v) { input.focus(); return; }
+      plantKey = v;
+      localStorage.setItem('plantKey', v);
+      makeClient();
+      done(true);
+    };
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter') o.querySelector('#pp-ok').click();
+      if (e.key === 'Escape') done(false);
+    });
+  });
+}
+
+function isAuthError(e) {
+  if (!e) return false;
+  return /row-level security|unauthorized|jwt|policy|forbidden|new row violates/i.test(e.message || '')
+      || e.statusCode === '403' || e.statusCode === 403 || e.code === '42501';
+}
+
+async function withKey(label, fn, opts = {}) {
+  const expectRows = !!opts.expectRows;
+  let res = await fn();
+  const looksAuth = isAuthError(res?.error);
+  const silentEmpty = !res?.error && expectRows && Array.isArray(res?.data) && res.data.length === 0;
+  if (looksAuth || silentEmpty) {
+    const reason = silentEmpty
+      ? "Save didn't take — passphrase may not match. Re-enter to " + label + '.'
+      : 'Passphrase needed to ' + label + '.';
+    const ok = await promptPassphrase(reason);
+    if (!ok) {
+      return silentEmpty
+        ? { ...res, error: { message: 'No changes saved — passphrase rejected.' } }
+        : res;
+    }
+    res = await fn();
+    if (!res?.error && expectRows && Array.isArray(res?.data) && res.data.length === 0) {
+      res = { ...res, error: { message: 'Still no rows updated after retry.' } };
+    }
+  }
+  return res;
+}
+
+// ── Plant list — fetched from Supabase (the inline PLANTS array referenced in
+//    PHOTO_UPLOADER.md was moved to the plants table in migration 001) ──────
+let PLANTS = [];
+async function loadPlants() {
+  const { data, error } = await sb.from('plants').select('id, name, sub, sci, loc, type, archived_at')
+    .order('name');
+  if (error) { showToast('Failed to load plants: ' + error.message); return; }
+  PLANTS = (data || []).filter(p => !p.archived_at);
+}
+
+// ── Image compression (same params as index.html) ───────────────────────────
+function compress(file) {
+  return new Promise(res => {
+    const reader = new FileReader();
+    reader.onload = e => {
+      const img = new Image();
+      img.onload = () => {
+        const MAX = 1000;
+        let w = img.width, h = img.height;
+        if (w > h && w > MAX)      { h = h * MAX / w; w = MAX; }
+        else if (h > w && h > MAX) { w = w * MAX / h; h = MAX; }
+        else if (w > MAX)          { h = h * MAX / w; w = MAX; }
+        const c = document.createElement('canvas');
+        c.width = w; c.height = h;
+        c.getContext('2d').drawImage(img, 0, 0, w, h);
+        c.toBlob(blob => res(blob), 'image/jpeg', 0.78);
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+// ── EXIF date extraction (matches index.html behavior so the history strip
+//    sorts by date taken, not upload time) ──────────────────────────────────
+async function extractPhotoDate(file) {
+  let ts = null, source = null;
+  try {
+    if (typeof exifr !== 'undefined') {
+      const exif = await exifr.parse(file, { tiff: true, xmp: true, ifd0: true, exif: true, gps: true, mergeOutput: true });
+      if (exif) {
+        const candidates = [
+          exif.DateTimeOriginal, exif.CreateDate, exif.DateTimeDigitized,
+          exif.ModifyDate, exif.DateCreated, exif.MetadataDate, exif.GPSDateStamp,
+        ];
+        for (const val of candidates) {
+          const d = val instanceof Date ? val : (typeof val === 'string' ? new Date(val) : null);
+          if (d && !isNaN(d.getTime()) && d.getFullYear() > 1990 && d.getTime() <= Date.now() + 86400000) {
+            ts = d.getTime(); source = 'EXIF'; break;
+          }
+        }
+      }
+    }
+  } catch (_) {}
+  if (!ts && file.lastModified) {
+    const age = Date.now() - file.lastModified;
+    if (age > 1800000) { ts = file.lastModified; source = 'file.lastModified'; }
+  }
+  return { ts, source };
+}
+
+// ── State ───────────────────────────────────────────────────────────────────
+let nextCardId = 1;
+let cards = [];   // { uid, file, previewUrl, plantId, status, errorMsg, ts, tsSource }
+
+function showToast(msg, ms) {
+  const ex = document.getElementById('toast');
+  if (ex) ex.remove();
+  const t = document.createElement('div');
+  t.id = 'toast';
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => { if (t.parentNode) t.remove(); }, ms || 3000);
+}
+
+// ── File intake ─────────────────────────────────────────────────────────────
+async function addFiles(fileList) {
+  const arr = [...fileList].filter(f => f.type.startsWith('image/'));
+  if (arr.length === 0) return;
+  for (const f of arr) {
+    const previewUrl = URL.createObjectURL(f);
+    const card = {
+      uid: nextCardId++,
+      file: f,
+      previewUrl,
+      plantId: '',
+      status: 'unassigned',
+      errorMsg: '',
+      ts: null,
+      tsSource: null,
+    };
+    cards.push(card);
+  }
+  renderGrid();
+  // Pull EXIF dates in the background so they appear without blocking the UI
+  for (const c of cards) {
+    if (c.ts != null || c.tsSource === 'pending') continue;
+    c.tsSource = 'pending';
+    extractPhotoDate(c.file).then(r => {
+      c.ts = r.ts;
+      c.tsSource = r.source || 'upload-time';
+      const el = document.querySelector('.pcard[data-uid="' + c.uid + '"] .pcard-ts');
+      if (el) el.textContent = formatTs(c);
+    });
+  }
+}
+
+function formatTs(c) {
+  if (c.ts) {
+    const d = new Date(c.ts);
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) +
+      ' · ' + (c.tsSource === 'EXIF' ? 'EXIF' : 'file date');
+  }
+  if (c.tsSource === 'pending') return 'reading date…';
+  return 'date: upload time';
+}
+
+// ── Combobox ────────────────────────────────────────────────────────────────
+function plantLabel(p) {
+  return p.name + (p.sub ? ' · ' + p.sub : '');
+}
+function plantMatches(p, q) {
+  if (!q) return true;
+  q = q.toLowerCase();
+  return (p.name || '').toLowerCase().includes(q)
+      || (p.sub || '').toLowerCase().includes(q)
+      || (p.sci || '').toLowerCase().includes(q)
+      || (p.loc || '').toLowerCase().includes(q)
+      || (p.id || '').toLowerCase().includes(q);
+}
+
+function buildCombobox(card) {
+  const wrap = document.createElement('div');
+  wrap.className = 'combobox' + (card.plantId ? ' has-pick' : '');
+  const picked = card.plantId ? PLANTS.find(p => p.id === card.plantId) : null;
+  wrap.innerHTML =
+    '<input type="text" placeholder="Search plant…" value="' + (picked ? esc(plantLabel(picked)) : '') + '">' +
+    (card.plantId ? '<button type="button" class="clear" title="Clear">×</button>' : '') +
+    '<div class="list"></div>';
+  const input = wrap.querySelector('input');
+  const list  = wrap.querySelector('.list');
+  let activeIdx = 0;
+  let filtered = [];
+
+  function refresh(showAll) {
+    const q = input.value.trim();
+    // If the input still shows the picked label exactly, treat as no query
+    const queryStr = (picked && q === plantLabel(picked) && !showAll) ? '' : q;
+    filtered = PLANTS.filter(p => plantMatches(p, queryStr)).slice(0, 50);
+    if (filtered.length === 0) {
+      list.innerHTML = '<div class="empty">No matches</div>';
+    } else {
+      list.innerHTML = filtered.map((p, i) =>
+        '<div class="opt' + (i === activeIdx ? ' active' : '') + '" data-id="' + esc(p.id) + '">' +
+          '<div class="opt-name">' + esc(plantLabel(p)) + '</div>' +
+          '<div class="opt-meta">' + esc(p.loc || '') + ' · ' + esc(p.id) + (p.type ? ' · ' + esc(p.type) : '') + '</div>' +
+        '</div>'
+      ).join('');
+    }
+  }
+
+  function open() { wrap.classList.add('open'); refresh(false); }
+  function close() { wrap.classList.remove('open'); }
+
+  function pick(p) {
+    card.plantId = p.id;
+    if (card.status === 'unassigned' || card.status === 'failed') {
+      card.status = 'ready';
+      card.errorMsg = '';
+    }
+    close();
+    renderCard(card);
+    updateSummary();
+  }
+
+  input.addEventListener('focus', () => { activeIdx = 0; open(); });
+  input.addEventListener('input', () => { activeIdx = 0; open(); });
+  input.addEventListener('keydown', e => {
+    if (e.key === 'ArrowDown') { e.preventDefault(); if (!wrap.classList.contains('open')) open(); activeIdx = Math.min(activeIdx + 1, filtered.length - 1); refresh(false); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); activeIdx = Math.max(activeIdx - 1, 0); refresh(false); }
+    else if (e.key === 'Enter') { e.preventDefault(); if (filtered[activeIdx]) pick(filtered[activeIdx]); }
+    else if (e.key === 'Escape') { close(); input.blur(); }
+  });
+  list.addEventListener('mousedown', e => {
+    const opt = e.target.closest('.opt');
+    if (!opt) return;
+    e.preventDefault();
+    const p = PLANTS.find(x => x.id === opt.dataset.id);
+    if (p) pick(p);
+  });
+  document.addEventListener('mousedown', e => {
+    if (!wrap.contains(e.target)) close();
+  });
+
+  const clearBtn = wrap.querySelector('.clear');
+  if (clearBtn) clearBtn.addEventListener('click', () => {
+    card.plantId = '';
+    if (card.status === 'ready') card.status = 'unassigned';
+    renderCard(card);
+    updateSummary();
+  });
+
+  return wrap;
+}
+
+// ── Card rendering ──────────────────────────────────────────────────────────
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+}
+
+function badgeFor(card) {
+  const map = {
+    unassigned: ['unassigned', 'Unassigned'],
+    ready:      ['ready', 'Ready'],
+    uploading:  ['uploading', 'Uploading…'],
+    done:       ['done', '✓ Done'],
+    failed:     ['failed', '✗ Failed'],
+    skipped:    ['skipped', 'Skipped'],
+  };
+  const [cls, label] = map[card.status] || map.unassigned;
+  return '<span class="badge ' + cls + '">' + label + '</span>';
+}
+
+function renderCard(card) {
+  const existing = document.querySelector('.pcard[data-uid="' + card.uid + '"]');
+  const fresh = buildCard(card);
+  if (existing) existing.replaceWith(fresh);
+  else document.getElementById('grid').appendChild(fresh);
+}
+
+function buildCard(card) {
+  const el = document.createElement('div');
+  el.className = 'pcard' + (card.status === 'skipped' ? ' skipped' : '') + (card.status === 'done' ? ' done' : '') + (card.status === 'failed' ? ' failed' : '');
+  el.dataset.uid = card.uid;
+  el.innerHTML =
+    '<div class="pcard-photo">' +
+      '<img src="' + card.previewUrl + '" alt="">' +
+      '<button class="pcard-x" title="Remove" type="button">×</button>' +
+    '</div>' +
+    '<div class="pcard-body">' +
+      badgeFor(card) +
+      '<div class="combobox-slot"></div>' +
+      '<div style="display:flex;justify-content:space-between;gap:6px;align-items:center">' +
+        '<div style="flex:1;min-width:0">' +
+          '<div class="pcard-fname" title="' + esc(card.file.name) + '">' + esc(card.file.name) + '</div>' +
+          '<div class="pcard-ts">' + formatTs(card) + '</div>' +
+        '</div>' +
+        '<button class="skip-btn" type="button">' + (card.status === 'skipped' ? 'Unskip' : 'Skip') + '</button>' +
+      '</div>' +
+      (card.errorMsg ? '<div class="pcard-err">' + esc(card.errorMsg) + '</div>' : '') +
+    '</div>';
+
+  el.querySelector('.combobox-slot').replaceWith(buildCombobox(card));
+
+  el.querySelector('.pcard-x').addEventListener('click', () => {
+    removeCard(card.uid);
+  });
+  el.querySelector('.skip-btn').addEventListener('click', () => {
+    if (card.status === 'skipped') {
+      card.status = card.plantId ? 'ready' : 'unassigned';
+    } else if (card.status !== 'uploading' && card.status !== 'done') {
+      card.status = 'skipped';
+    }
+    renderCard(card);
+    updateSummary();
+  });
+
+  return el;
+}
+
+function removeCard(uid) {
+  const idx = cards.findIndex(c => c.uid === uid);
+  if (idx === -1) return;
+  const c = cards[idx];
+  if (c.status === 'uploading') { showToast('Wait for upload to finish before removing'); return; }
+  URL.revokeObjectURL(c.previewUrl);
+  cards.splice(idx, 1);
+  const el = document.querySelector('.pcard[data-uid="' + uid + '"]');
+  if (el) el.remove();
+  updateSummary();
+  if (cards.length === 0) {
+    document.getElementById('summary-row').style.display = 'none';
+    document.getElementById('grid').innerHTML = '';
+  }
+}
+
+function renderGrid() {
+  const grid = document.getElementById('grid');
+  grid.innerHTML = '';
+  cards.forEach(c => grid.appendChild(buildCard(c)));
+  document.getElementById('summary-row').style.display = cards.length > 0 ? 'flex' : 'none';
+  updateSummary();
+}
+
+function updateSummary() {
+  const total = cards.length;
+  const ready = cards.filter(c => c.status === 'ready').length;
+  const done  = cards.filter(c => c.status === 'done').length;
+  const failed = cards.filter(c => c.status === 'failed').length;
+  const skipped = cards.filter(c => c.status === 'skipped').length;
+  const unassigned = cards.filter(c => c.status === 'unassigned').length;
+  const uploading = cards.filter(c => c.status === 'uploading').length;
+  const bits = [];
+  bits.push('<strong>' + total + '</strong> total');
+  if (ready)      bits.push(ready + ' ready');
+  if (uploading)  bits.push(uploading + ' uploading');
+  if (done)       bits.push(done + ' done');
+  if (failed)     bits.push(failed + ' failed');
+  if (skipped)    bits.push(skipped + ' skipped');
+  if (unassigned) bits.push(unassigned + ' unassigned');
+  document.getElementById('summary').innerHTML = bits.join(' · ');
+
+  const canUpload = ready > 0 && uploading === 0;
+  document.getElementById('upload-top').disabled = !canUpload;
+  document.getElementById('upload-bot').disabled = !canUpload;
+}
+
+// ── Upload pipeline ─────────────────────────────────────────────────────────
+//
+// Per-plant locks: many cards may target the same plant, so we serialize the
+// plant_overrides upserts for that plant to avoid each upload clobbering the
+// previous photo_ts. We still run the storage uploads concurrently.
+const plantLocks = new Map();
+function withPlantLock(plantId, fn) {
+  const prev = plantLocks.get(plantId) || Promise.resolve();
+  const next = prev.catch(() => {}).then(fn);
+  plantLocks.set(plantId, next);
+  return next;
+}
+
+// Pick a unique filename inside a plant's folder. Stamps with EXIF date if we
+// have one (so the history strip orders by date taken), else Date.now() at
+// upload time per the spec. Adds a -n suffix if needed for collision safety.
+function pickFilename(plantId, card, usedInBatch) {
+  const base = card.ts || Date.now();
+  let name = base + '.jpg';
+  let n = 1;
+  const key = plantId + '/' + name;
+  while (usedInBatch.has(plantId + '/' + name)) {
+    name = base + '-' + n + '.jpg'; n++;
+  }
+  usedInBatch.add(plantId + '/' + name);
+  return { name, ts: base };
+}
+
+async function uploadCard(card, usedInBatch) {
+  if (card.status !== 'ready') return;
+  const plantId = card.plantId;
+  card.status = 'uploading';
+  card.errorMsg = '';
+  renderCard(card);
+  updateSummary();
+
+  try {
+    const blob = await compress(card.file);
+    const picked = pickFilename(plantId, card, usedInBatch);
+    const path = plantId + '/' + picked.name;
+
+    const upRes = await withKey('upload photo', () =>
+      sb.storage.from(BUCKET).upload(path, blob, { contentType: 'image/jpeg', upsert: false })
+    );
+    if (upRes.error) throw new Error(upRes.error.message || 'Upload failed');
+
+    // Serialize the override upsert per plant so we don't lose photo_ts on
+    // races between two cards uploading to the same plant.
+    await withPlantLock(plantId, async () => {
+      const fetched = await sb.from('plant_overrides').select('*').eq('id', plantId).limit(1);
+      const existing = (fetched.data && fetched.data[0]) || { id: plantId };
+      const prevTs = existing.photo_ts || 0;
+      // Only advance photo_ts if this upload is newer than what's already set
+      const nextTs = Math.max(prevTs, picked.ts);
+      const row = { ...existing, photo_ts: nextTs, updated_at: new Date().toISOString() };
+      const res = await withKey('record photo timestamp', () =>
+        sb.from('plant_overrides').upsert(row).select(), { expectRows: true });
+      if (res.error) throw new Error(res.error.message || 'Failed to record photo');
+    });
+
+    card.status = 'done';
+  } catch (err) {
+    card.status = 'failed';
+    card.errorMsg = err.message || String(err);
+  }
+  renderCard(card);
+  updateSummary();
+}
+
+async function uploadAllReady() {
+  const queue = cards.filter(c => c.status === 'ready');
+  if (queue.length === 0) return;
+  const usedInBatch = new Set();
+  let idx = 0;
+  async function worker() {
+    while (true) {
+      const i = idx++;
+      if (i >= queue.length) return;
+      await uploadCard(queue[i], usedInBatch);
+    }
+  }
+  document.getElementById('upload-top').disabled = true;
+  document.getElementById('upload-bot').disabled = true;
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, queue.length) }, worker));
+  const ok = queue.filter(c => c.status === 'done').length;
+  const fail = queue.filter(c => c.status === 'failed').length;
+  if (fail === 0) showToast('Uploaded ' + ok + ' photo' + (ok === 1 ? '' : 's'));
+  else showToast(ok + ' uploaded, ' + fail + ' failed — check the cards');
+  updateSummary();
+}
+
+// ── Wire up ─────────────────────────────────────────────────────────────────
+document.getElementById('dropzone').addEventListener('click', () => document.getElementById('file-input').click());
+document.querySelector('#dropzone .browse').addEventListener('click', e => { e.stopPropagation(); document.getElementById('file-input').click(); });
+document.getElementById('file-input').addEventListener('change', e => {
+  addFiles(e.target.files);
+  e.target.value = '';
+});
+
+['dragenter','dragover'].forEach(ev =>
+  document.getElementById('dropzone').addEventListener(ev, e => { e.preventDefault(); document.getElementById('dropzone').classList.add('over'); })
+);
+['dragleave','drop'].forEach(ev =>
+  document.getElementById('dropzone').addEventListener(ev, e => { e.preventDefault(); document.getElementById('dropzone').classList.remove('over'); })
+);
+document.getElementById('dropzone').addEventListener('drop', e => {
+  if (e.dataTransfer?.files?.length) addFiles(e.dataTransfer.files);
+});
+// Also allow drop anywhere on the page once cards exist
+window.addEventListener('dragover', e => { if (cards.length > 0) e.preventDefault(); });
+window.addEventListener('drop', e => {
+  if (cards.length > 0 && e.dataTransfer?.files?.length) {
+    e.preventDefault();
+    addFiles(e.dataTransfer.files);
+  }
+});
+
+document.getElementById('upload-top').addEventListener('click', uploadAllReady);
+document.getElementById('upload-bot').addEventListener('click', uploadAllReady);
+
+document.getElementById('clear-done').addEventListener('click', () => {
+  cards = cards.filter(c => {
+    if (c.status === 'done') { URL.revokeObjectURL(c.previewUrl); return false; }
+    return true;
+  });
+  renderGrid();
+});
+document.getElementById('clear-all').addEventListener('click', () => {
+  if (cards.some(c => c.status === 'uploading')) { showToast('Wait for uploads to finish'); return; }
+  if (!confirm('Clear all ' + cards.length + ' card' + (cards.length === 1 ? '' : 's') + '?')) return;
+  cards.forEach(c => URL.revokeObjectURL(c.previewUrl));
+  cards = [];
+  renderGrid();
+});
+
+loadPlants();
+</script>
+</body>
+</html>
