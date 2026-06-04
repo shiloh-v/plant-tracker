@@ -275,7 +275,7 @@
     <button id="cluster-close" title="Close">×</button>
     <button id="cluster-startover" title="Discard saved progress and start over" style="float:right;background:var(--soft);border:1px solid var(--border);border-radius:14px;font-size:11px;font-weight:700;padding:5px 10px;cursor:pointer;color:var(--muted);font-family:inherit;margin-right:6px">↺ Start over</button>
     <h2>🤖 Auto-cluster with AI</h2>
-    <div class="sub">First, AI groups your unassigned photos by which look like the same plant. Then you label each group with a plant. Nothing's sent to the API until you press a button here. <strong>Progress saves automatically</strong> — you can close this panel and come back without losing what you've already paid for.</div>
+    <div class="sub">First, AI groups your unassigned photos by which look like the same plant. Then you label each group with a plant. Nothing's sent to the API until you press a button here. <strong>Progress saves every 6 photos</strong> — close the panel, reload, hit an error… whatever. Reopen and you'll pick up where you left off.</div>
     <div id="cluster-steps"></div>
   </div>
 </div>
@@ -1305,6 +1305,11 @@ function persistClusterSession() {
     const data = serializeClusterState();
     if (!data) return;
     localStorage.setItem(CLUSTER_SAVE_KEY, JSON.stringify(data));
+    // Track in-memory so the progress UI can show "✓ Saved · N photos"
+    if (clusterState) {
+      clusterState.lastSavedAt = Date.now();
+      clusterState.lastSavedReps = clusterState.cardCluster.size;
+    }
   } catch (e) { console.warn('persist cluster session failed:', e); }
 }
 function loadPersistedClusterSession() {
@@ -1665,12 +1670,21 @@ function renderClusterPanel() {
 
   // Progress / errors
   if (s.progress) {
+    const savedBit = s.lastSavedReps != null
+      ? ' · <span style="color:var(--good-fg);font-weight:700">✓ Saved · ' + s.lastSavedReps + ' photos persisted</span>'
+      : '';
     html.push('<div class="cluster-step active"><div class="title">⏳ ' + esc(s.progress.label) + '</div>' +
               '<div class="progress-bar"><div style="width:' + Math.round(100 * s.progress.done / Math.max(1, s.progress.total)) + '%"></div></div>' +
-              '<div class="body muted" style="margin-top:6px">' + s.progress.done + ' / ' + s.progress.total + (s.progress.usage ? ' · running cost ~$' + estimateCostUSD(s.progress.usage).toFixed(3) : '') + '</div></div>');
+              '<div class="body muted" style="margin-top:6px">' + s.progress.done + ' / ' + s.progress.total + ' batches' +
+              (s.progress.usage ? ' · running cost ~$' + estimateCostUSD(s.progress.usage).toFixed(3) : '') +
+              savedBit +
+              '</div></div>');
   }
   if (s.error) {
-    html.push('<div class="cluster-step" style="border-color:var(--danger-fg);background:var(--danger-bg);color:var(--danger-fg)"><div class="title">⚠ ' + esc(s.error) + '</div></div>');
+    const savedBit = s.lastSavedReps != null
+      ? '<div class="body" style="margin-top:6px;color:var(--good-fg);font-weight:700">✓ ' + s.lastSavedReps + ' photos saved — reopen the panel to resume from here.</div>'
+      : '';
+    html.push('<div class="cluster-step" style="border-color:var(--danger-fg);background:var(--danger-bg);color:var(--danger-fg)"><div class="title">⚠ ' + esc(s.error) + '</div>' + savedBit + '</div>');
   }
 
   steps.innerHTML = html.join('');
