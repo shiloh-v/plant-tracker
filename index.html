@@ -388,6 +388,7 @@
   <button id="lb-prev" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);background:rgba(255,255,255,.15);border:none;border-radius:50%;width:44px;height:44px;font-size:24px;color:white;cursor:pointer;font-family:inherit;line-height:1;padding:0;z-index:2">‹</button>
   <button id="lb-next" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:rgba(255,255,255,.15);border:none;border-radius:50%;width:44px;height:44px;font-size:24px;color:white;cursor:pointer;font-family:inherit;line-height:1;padding:0;z-index:2">›</button>
   <img id="lb-img" style="max-width:100vw;max-height:88vh;object-fit:contain;user-select:none;-webkit-user-select:none">
+  <div id="lb-caption" style="position:absolute;bottom:18px;left:0;right:0;text-align:center;color:rgba(255,255,255,.85);font-size:13px;font-family:inherit;font-weight:600;pointer-events:none"></div>
 </div>
 
 <!-- ── Move-photo modal ── -->
@@ -401,7 +402,6 @@
       <button id="mp-cancel" style="flex:1;padding:10px;border-radius:10px;border:1.5px solid var(--border);background:var(--cream);font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">Cancel</button>
     </div>
   </div>
-  <div id="lb-caption" style="position:absolute;bottom:18px;left:0;right:0;text-align:center;color:rgba(255,255,255,.85);font-size:13px;font-family:inherit;font-weight:600;pointer-events:none"></div>
 </div>
 
 <input type="file" id="file-input" accept="image/*" multiple style="display:none">
@@ -1005,9 +1005,11 @@ function openModal(id) {
   analyzeBtn.innerHTML = '🔍 Analyze with AI';
   analyzeBtn.disabled = false;
 
-  // Show "last analyzed" timestamp under the button if there's a prior run
+  // Show "last analyzed" timestamp under the button if there's a prior run.
+  // Independent of whether the plant currently has a photo — the analysis
+  // history is useful context even if the photo was moved or deleted.
   const lastEl = document.getElementById('analyze-last');
-  const last = url ? lastAIAnalysisDate(id) : null;
+  const last = lastAIAnalysisDate(id);
   if (last) {
     const days = Math.floor((Date.now() - last.getTime()) / 86400000);
     const rel = days === 0 ? 'today' : days === 1 ? 'yesterday' : days + ' days ago';
