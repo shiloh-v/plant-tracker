@@ -887,6 +887,9 @@ document.getElementById('dropzone').addEventListener('drop', e => {
 // Also allow drop anywhere on the page once cards exist
 window.addEventListener('dragover', e => { if (cards.length > 0) e.preventDefault(); });
 window.addEventListener('drop', e => {
+  // Drop events on the dropzone bubble here — let the dropzone's own
+  // listener handle those so we don't double-add
+  if (e.target.closest && e.target.closest('#dropzone')) return;
   if (cards.length > 0 && e.dataTransfer?.files?.length) {
     e.preventDefault();
     addFiles(e.dataTransfer.files);
