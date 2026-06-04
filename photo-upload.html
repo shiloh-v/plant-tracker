@@ -1029,9 +1029,33 @@ document.getElementById('bulk-clear-sel').addEventListener('click', () => {
 document.getElementById('bulk-cb-slot').appendChild(buildBulkCombobox(p => bulkAssign(p)));
 
 // ── Restore from IndexedDB on load ──────────────────────────────────────────
+// Cards prior to the window-drop-double-add fix may have been stored twice.
+// Higher rank wins so a 'done' or 'ready' dup is kept over an 'unassigned' one.
+const STATUS_RANK = { done: 6, uploading: 5, ready: 4, duplicate: 3, failed: 3, skipped: 2, unassigned: 1 };
+
 async function restoreFromIDB() {
-  const rows = await loadPersisted();
-  if (rows.length === 0) return;
+  const rawRows = await loadPersisted();
+  if (rawRows.length === 0) return;
+
+  // Group by file identity (name + size + lastModified) and keep one per group
+  const groups = new Map();
+  for (const r of rawRows) {
+    const f = r.fileBlob || {};
+    const key = (f.name || r.fileName || '') + '|' + (f.size || 0) + '|' + (f.lastModified || 0);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(r);
+  }
+  const rows = [];
+  let dropped = 0;
+  for (const group of groups.values()) {
+    group.sort((a, b) => (STATUS_RANK[b.status] || 0) - (STATUS_RANK[a.status] || 0));
+    rows.push(group[0]);
+    for (let i = 1; i < group.length; i++) {
+      unpersistCard(group[i].uid);
+      dropped++;
+    }
+  }
+
   for (const r of rows) {
     const file = r.fileBlob.name ? r.fileBlob : new File([r.fileBlob], r.fileName || 'photo.jpg', { type: r.fileType || 'image/jpeg' });
     const previewUrl = URL.createObjectURL(file);
@@ -1063,7 +1087,8 @@ async function restoreFromIDB() {
     cards.push(card);
   }
   renderGrid();
-  showToast('Restored ' + cards.length + ' photo' + (cards.length === 1 ? '' : 's') + ' from last session');
+  const droppedSuffix = dropped > 0 ? ' (removed ' + dropped + ' duplicate' + (dropped === 1 ? '' : 's') + ')' : '';
+  showToast('Restored ' + cards.length + ' photo' + (cards.length === 1 ? '' : 's') + ' from last session' + droppedSuffix);
 }
 
 loadPlants();
