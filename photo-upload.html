@@ -32,6 +32,11 @@
   .upload-all-btn { background: var(--cream); color: var(--green); border: none; border-radius: 18px; padding: 8px 16px; font-size: 13px; font-weight: 700; font-family: inherit; cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,.18); }
   .upload-all-btn:disabled { opacity: .45; cursor: not-allowed; }
   .ghost-btn { background: rgba(255,255,255,.18); color: white; border: none; border-radius: 18px; padding: 8px 14px; font-size: 12px; font-weight: 700; font-family: inherit; cursor: pointer; }
+  .count-pills { display: flex; gap: 6px; flex-wrap: wrap; }
+  .count-pill { background: rgba(255,255,255,.18); color: white; border-radius: 16px; padding: 4px 11px; font-size: 11px; font-weight: 700; font-family: inherit; white-space: nowrap; display: inline-flex; align-items: center; gap: 5px; }
+  .count-pill .n { font-size: 13px; }
+  .count-pill.ready { background: var(--cream); color: var(--green); }
+  .count-pill.done { background: var(--good-bg); color: var(--good-fg); }
 
   #main { max-width: 1400px; margin: 0 auto; padding: 14px 12px 80px; }
 
@@ -128,9 +133,14 @@
 
 <div id="header">
   <div class="header-inner">
-    <div style="display:flex;align-items:center;gap:12px">
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
       <a id="back-link" href="index.html">← Back</a>
       <h1>📷 Bulk Upload</h1>
+      <div class="count-pills">
+        <span class="count-pill"       title="Total photos">📸 <span class="n" id="pill-total">0</span></span>
+        <span class="count-pill ready" title="Assigned and ready to upload">Ready <span class="n" id="pill-ready">0</span></span>
+        <span class="count-pill done"  title="Uploaded">✓ Done <span class="n" id="pill-done">0</span></span>
+      </div>
     </div>
     <div style="display:flex;gap:8px;align-items:center">
       <button id="upload-top" class="upload-all-btn" disabled>Upload All Ready</button>
@@ -749,6 +759,10 @@ function updateSummary() {
   if (skipped)    bits.push(skipped + ' skipped');
   if (unassigned) bits.push(unassigned + ' unassigned');
   document.getElementById('summary').innerHTML = bits.join(' · ');
+
+  document.getElementById('pill-total').textContent = total;
+  document.getElementById('pill-ready').textContent = ready;
+  document.getElementById('pill-done').textContent  = done;
 
   const canUpload = ready > 0 && uploading === 0;
   document.getElementById('upload-top').disabled = !canUpload;
