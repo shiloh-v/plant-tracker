@@ -60,7 +60,10 @@
 
   .pcard-photo { height: 160px; background: var(--photo-bg); border-radius: 13px 13px 0 0; overflow: hidden; display: flex; align-items: center; justify-content: center; position: relative; }
   .pcard-photo img { width: 100%; height: 100%; object-fit: cover; }
-  .pcard-x { position: absolute; top: 6px; right: 6px; background: rgba(0,0,0,.55); color: white; border: none; border-radius: 50%; width: 26px; height: 26px; font-size: 14px; cursor: pointer; font-family: inherit; line-height: 1; padding: 0; display: flex; align-items: center; justify-content: center; }
+  .pcard-x { position: absolute; top: 6px; right: 6px; background: rgba(0,0,0,.55); color: white; border: none; border-radius: 50%; width: 26px; height: 26px; font-size: 14px; cursor: pointer; font-family: inherit; line-height: 1; padding: 0; display: flex; align-items: center; justify-content: center; z-index: 2; }
+  .pcard-select { position: absolute; top: 6px; left: 6px; background: rgba(0,0,0,.55); color: white; border: none; border-radius: 50%; width: 26px; height: 26px; font-size: 14px; font-weight: 700; cursor: pointer; font-family: inherit; line-height: 1; padding: 0; display: flex; align-items: center; justify-content: center; z-index: 2; }
+  .pcard.selected .pcard-select { background: var(--green); }
+  .pcard.selected { outline: 3px solid var(--green); outline-offset: -1px; }
 
   .pcard-body { padding: 10px 11px 11px; display: flex; flex-direction: column; gap: 7px; }
 
@@ -99,6 +102,15 @@
   .pcard-note { font-size: 11px; color: #92400e; background: #fde68a; border-radius: 6px; padding: 4px 7px; line-height: 1.3; }
 
   #toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: rgba(30,26,18,.92); color: white; padding: 10px 18px; border-radius: 22px; font-size: 13px; font-weight: 600; z-index: 400; box-shadow: 0 4px 14px rgba(0,0,0,.35); }
+
+  /* Bulk action bar */
+  #bulk-bar { position: fixed; bottom: 0; left: 0; right: 0; background: var(--green); color: white; padding: 11px 14px; box-shadow: 0 -4px 16px rgba(0,0,0,.25); z-index: 95; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  #bulk-bar.hidden { display: none; }
+  #bulk-bar .count { font-weight: 700; white-space: nowrap; font-size: 13px; }
+  #bulk-bar .ghost { background: rgba(255,255,255,.18); color: white; border: none; border-radius: 14px; padding: 5px 12px; font-size: 11px; font-weight: 700; cursor: pointer; font-family: inherit; white-space: nowrap; }
+  #bulk-bar .cb-wrap { flex: 1; min-width: 200px; max-width: 360px; }
+  #bulk-bar .combobox input { background: var(--cream); color: var(--text); border: none; }
+  #bulk-bar .combobox.up .list { top: auto; bottom: calc(100% + 4px); }
 
   /* Passphrase modal */
   #pp-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 200; display: flex; align-items: center; justify-content: center; padding: 20px; }
@@ -147,6 +159,13 @@
 </div>
 
 <input type="file" id="file-input" accept="image/*" multiple style="display:none">
+
+<div id="bulk-bar" class="hidden">
+  <span class="count" id="bulk-count">0 selected</span>
+  <button class="ghost" id="bulk-all">All visible</button>
+  <button class="ghost" id="bulk-clear-sel">Clear</button>
+  <div class="cb-wrap" id="bulk-cb-slot"></div>
+</div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/exifr@7.1.3/dist/full.umd.js"></script>
@@ -294,6 +313,79 @@ async function extractPhotoDate(file) {
 // ── State ───────────────────────────────────────────────────────────────────
 let nextCardId = 1;
 let cards = [];   // { uid, file, previewUrl, plantId, status, errorMsg, ts, tsSource, tsReady, sha, force }
+const selectedUids = new Set();
+
+// ── Persistence (IndexedDB) ─────────────────────────────────────────────────
+// The whole card list (file blobs included) survives reload so a bulk session
+// isn't lost if you navigate away or the tab closes.
+let _db = null;
+function openDB() {
+  if (_db) return Promise.resolve(_db);
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open('bulk-upload', 1);
+    req.onupgradeneeded = () => req.result.createObjectStore('cards', { keyPath: 'uid' });
+    req.onsuccess = () => { _db = req.result; resolve(_db); };
+    req.onerror   = () => reject(req.error);
+  });
+}
+async function persistCard(card) {
+  try {
+    const db = await openDB();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction('cards', 'readwrite');
+      tx.objectStore('cards').put({
+        uid: card.uid,
+        fileBlob: card.file,
+        fileName: card.file.name,
+        fileType: card.file.type,
+        // Don't persist 'uploading' — if we crash mid-upload, restore as ready
+        status: card.status === 'uploading' ? 'ready' : card.status,
+        plantId: card.plantId || '',
+        errorMsg: card.errorMsg || '',
+        ts: card.ts || null,
+        tsSource: card.tsSource === 'pending' ? null : (card.tsSource || null),
+        sha: card.sha || null,
+        force: !!card.force,
+      });
+      tx.oncomplete = resolve;
+      tx.onerror    = () => reject(tx.error);
+    });
+  } catch (err) { console.warn('persist failed:', err); }
+}
+async function unpersistCard(uid) {
+  try {
+    const db = await openDB();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction('cards', 'readwrite');
+      tx.objectStore('cards').delete(uid);
+      tx.oncomplete = resolve;
+      tx.onerror    = () => reject(tx.error);
+    });
+  } catch (err) { console.warn('unpersist failed:', err); }
+}
+async function clearPersisted() {
+  try {
+    const db = await openDB();
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction('cards', 'readwrite');
+      tx.objectStore('cards').clear();
+      tx.oncomplete = resolve;
+      tx.onerror    = () => reject(tx.error);
+    });
+  } catch (err) { console.warn('clear failed:', err); }
+}
+async function loadPersisted() {
+  try {
+    const db = await openDB();
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction('cards', 'readonly');
+      const req = tx.objectStore('cards').getAll();
+      req.onsuccess = () => resolve(req.result || []);
+      req.onerror   = () => reject(req.error);
+    });
+  } catch (err) { console.warn('load failed:', err); return []; }
+}
+const markDirty = card => { persistCard(card); };
 
 // Cache of {plantId -> Set<filename>} so we can detect filename collisions
 // without re-listing the bucket for every card the user assigns.
@@ -344,6 +436,7 @@ async function addFiles(fileList) {
       tsSource: null,
     };
     cards.push(card);
+    markDirty(card);
   }
   renderGrid();
   // Pull EXIF dates in the background so they appear without blocking the UI.
@@ -354,6 +447,7 @@ async function addFiles(fileList) {
     c.tsReady = extractPhotoDate(c.file).then(r => {
       c.ts = r.ts;
       c.tsSource = r.source || 'upload-time';
+      markDirty(c);
       const el = document.querySelector('.pcard[data-uid="' + c.uid + '"] .pcard-ts');
       if (el) el.textContent = formatTs(c);
     });
@@ -380,6 +474,7 @@ async function checkDuplicate(card) {
     if (existing.has(candidate)) {
       card.status = 'duplicate';
       card.errorMsg = 'Same EXIF date already uploaded to this plant (' + candidate + ')';
+      markDirty(card);
       renderCard(card);
       updateSummary();
       return;
@@ -400,8 +495,11 @@ async function checkDuplicate(card) {
   if (earlier) {
     card.status = 'duplicate';
     card.errorMsg = 'Same image as another card on this plant (' + earlier.file.name + ')';
+    markDirty(card);
     renderCard(card);
     updateSummary();
+  } else if (card.sha) {
+    markDirty(card);
   }
 }
 
@@ -470,6 +568,7 @@ function buildCombobox(card) {
       card.force = false;
     }
     close();
+    markDirty(card);
     renderCard(card);
     updateSummary();
     checkDuplicate(card);
@@ -497,7 +596,12 @@ function buildCombobox(card) {
   const clearBtn = wrap.querySelector('.clear');
   if (clearBtn) clearBtn.addEventListener('click', () => {
     card.plantId = '';
-    if (card.status === 'ready') card.status = 'unassigned';
+    if (card.status === 'ready' || card.status === 'duplicate') {
+      card.status = 'unassigned';
+      card.errorMsg = '';
+      card.force = false;
+    }
+    markDirty(card);
     renderCard(card);
     updateSummary();
   });
@@ -533,17 +637,20 @@ function renderCard(card) {
 
 function buildCard(card) {
   const el = document.createElement('div');
+  const selected = selectedUids.has(card.uid);
   const stateCls =
     (card.status === 'skipped'   ? ' skipped'   : '') +
     (card.status === 'done'      ? ' done'      : '') +
     (card.status === 'failed'    ? ' failed'    : '') +
-    (card.status === 'duplicate' ? ' duplicate' : '');
+    (card.status === 'duplicate' ? ' duplicate' : '') +
+    (selected ? ' selected' : '');
   el.className = 'pcard' + stateCls;
   el.dataset.uid = card.uid;
   const msgClass = card.status === 'duplicate' ? 'pcard-note' : 'pcard-err';
   el.innerHTML =
     '<div class="pcard-photo">' +
       '<img src="' + card.previewUrl + '" alt="">' +
+      '<button class="pcard-select" title="Select" type="button">' + (selected ? '✓' : '') + '</button>' +
       '<button class="pcard-x" title="Remove" type="button">×</button>' +
     '</div>' +
     '<div class="pcard-body">' +
@@ -574,6 +681,7 @@ function buildCard(card) {
     } else if (card.status !== 'uploading' && card.status !== 'done') {
       card.status = 'skipped';
     }
+    markDirty(card);
     renderCard(card);
     updateSummary();
   });
@@ -582,8 +690,14 @@ function buildCard(card) {
     card.force = true;
     card.status = 'ready';
     card.errorMsg = '';
+    markDirty(card);
     renderCard(card);
     updateSummary();
+  });
+  const selectBtn = el.querySelector('.pcard-select');
+  if (selectBtn) selectBtn.addEventListener('click', e => {
+    e.stopPropagation();
+    toggleSelect(card.uid);
   });
 
   return el;
@@ -596,9 +710,12 @@ function removeCard(uid) {
   if (c.status === 'uploading') { showToast('Wait for upload to finish before removing'); return; }
   URL.revokeObjectURL(c.previewUrl);
   cards.splice(idx, 1);
+  selectedUids.delete(uid);
+  unpersistCard(uid);
   const el = document.querySelector('.pcard[data-uid="' + uid + '"]');
   if (el) el.remove();
   updateSummary();
+  renderBulkBar();
   if (cards.length === 0) {
     document.getElementById('summary-row').style.display = 'none';
     document.getElementById('grid').innerHTML = '';
@@ -671,6 +788,7 @@ async function uploadCard(card, usedInBatch) {
   const plantId = card.plantId;
   card.status = 'uploading';
   card.errorMsg = '';
+  markDirty(card);
   renderCard(card);
   updateSummary();
 
@@ -708,6 +826,7 @@ async function uploadCard(card, usedInBatch) {
     card.status = 'failed';
     card.errorMsg = err.message || String(err);
   }
+  markDirty(card);
   renderCard(card);
   updateSummary();
 }
@@ -765,20 +884,173 @@ document.getElementById('upload-bot').addEventListener('click', uploadAllReady);
 
 document.getElementById('clear-done').addEventListener('click', () => {
   cards = cards.filter(c => {
-    if (c.status === 'done') { URL.revokeObjectURL(c.previewUrl); return false; }
+    if (c.status === 'done') {
+      URL.revokeObjectURL(c.previewUrl);
+      selectedUids.delete(c.uid);
+      unpersistCard(c.uid);
+      return false;
+    }
     return true;
   });
   renderGrid();
+  renderBulkBar();
 });
 document.getElementById('clear-all').addEventListener('click', () => {
   if (cards.some(c => c.status === 'uploading')) { showToast('Wait for uploads to finish'); return; }
   if (!confirm('Clear all ' + cards.length + ' card' + (cards.length === 1 ? '' : 's') + '?')) return;
   cards.forEach(c => URL.revokeObjectURL(c.previewUrl));
   cards = [];
+  selectedUids.clear();
+  clearPersisted();
   renderGrid();
+  renderBulkBar();
 });
 
+// ── Bulk selection + assignment ─────────────────────────────────────────────
+function toggleSelect(uid) {
+  if (selectedUids.has(uid)) selectedUids.delete(uid);
+  else selectedUids.add(uid);
+  const card = cards.find(c => c.uid === uid);
+  if (card) renderCard(card);
+  renderBulkBar();
+}
+
+function buildBulkCombobox(onPick) {
+  const wrap = document.createElement('div');
+  wrap.className = 'combobox up';
+  wrap.innerHTML =
+    '<input type="text" placeholder="Search plant to assign to selected…">' +
+    '<div class="list"></div>';
+  const input = wrap.querySelector('input');
+  const list  = wrap.querySelector('.list');
+  let activeIdx = 0;
+  let filtered = [];
+
+  function refresh() {
+    const q = input.value.trim();
+    filtered = PLANTS.filter(p => plantMatches(p, q)).slice(0, 50);
+    if (filtered.length === 0) {
+      list.innerHTML = '<div class="empty">No matches</div>';
+    } else {
+      list.innerHTML = filtered.map((p, i) =>
+        '<div class="opt' + (i === activeIdx ? ' active' : '') + '" data-id="' + esc(p.id) + '">' +
+          '<div class="opt-name">' + esc(plantLabel(p)) + '</div>' +
+          '<div class="opt-meta">' + esc(p.loc || '') + ' · ' + esc(p.id) + (p.type ? ' · ' + esc(p.type) : '') + '</div>' +
+        '</div>'
+      ).join('');
+    }
+  }
+  function open()  { wrap.classList.add('open'); refresh(); }
+  function close() { wrap.classList.remove('open'); }
+
+  input.addEventListener('focus', () => { activeIdx = 0; open(); });
+  input.addEventListener('input', () => { activeIdx = 0; open(); });
+  input.addEventListener('keydown', e => {
+    if (e.key === 'ArrowDown') { e.preventDefault(); if (!wrap.classList.contains('open')) open(); activeIdx = Math.min(activeIdx + 1, filtered.length - 1); refresh(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); activeIdx = Math.max(activeIdx - 1, 0); refresh(); }
+    else if (e.key === 'Enter') { e.preventDefault(); if (filtered[activeIdx]) { onPick(filtered[activeIdx]); input.value = ''; close(); } }
+    else if (e.key === 'Escape') { close(); input.blur(); }
+  });
+  list.addEventListener('mousedown', e => {
+    const opt = e.target.closest('.opt');
+    if (!opt) return;
+    e.preventDefault();
+    const p = PLANTS.find(x => x.id === opt.dataset.id);
+    if (p) { onPick(p); input.value = ''; close(); }
+  });
+  document.addEventListener('mousedown', e => {
+    if (!wrap.contains(e.target)) close();
+  });
+  return wrap;
+}
+
+function bulkAssign(plant) {
+  let assigned = 0, skipped = 0;
+  // Snapshot — toggleSelect/renderCard mutate the set during iteration
+  const uids = [...selectedUids];
+  for (const uid of uids) {
+    const card = cards.find(c => c.uid === uid);
+    if (!card) continue;
+    if (card.status === 'uploading' || card.status === 'done') { skipped++; continue; }
+    card.plantId = plant.id;
+    card.status = 'ready';
+    card.errorMsg = '';
+    card.force = false;
+    markDirty(card);
+    assigned++;
+  }
+  selectedUids.clear();
+  renderGrid();
+  renderBulkBar();
+  showToast('Assigned ' + assigned + ' to ' + plant.name + (skipped ? ' (' + skipped + ' skipped — already uploaded)' : ''));
+  // Run dedup checks per-card (in parallel — they're all hitting the same
+  // plant folder, so listExistingForPlant only fires once thanks to the cache)
+  for (const uid of uids) {
+    const card = cards.find(c => c.uid === uid);
+    if (card && card.status === 'ready') checkDuplicate(card);
+  }
+}
+
+function renderBulkBar() {
+  const bar = document.getElementById('bulk-bar');
+  const n = selectedUids.size;
+  if (n === 0) { bar.classList.add('hidden'); return; }
+  bar.classList.remove('hidden');
+  document.getElementById('bulk-count').textContent = n + ' selected';
+}
+
+document.getElementById('bulk-all').addEventListener('click', () => {
+  cards.forEach(c => selectedUids.add(c.uid));
+  renderGrid();
+  renderBulkBar();
+});
+document.getElementById('bulk-clear-sel').addEventListener('click', () => {
+  selectedUids.clear();
+  renderGrid();
+  renderBulkBar();
+});
+document.getElementById('bulk-cb-slot').appendChild(buildBulkCombobox(p => bulkAssign(p)));
+
+// ── Restore from IndexedDB on load ──────────────────────────────────────────
+async function restoreFromIDB() {
+  const rows = await loadPersisted();
+  if (rows.length === 0) return;
+  for (const r of rows) {
+    const file = r.fileBlob.name ? r.fileBlob : new File([r.fileBlob], r.fileName || 'photo.jpg', { type: r.fileType || 'image/jpeg' });
+    const previewUrl = URL.createObjectURL(file);
+    const card = {
+      uid: r.uid,
+      file,
+      previewUrl,
+      plantId: r.plantId || '',
+      status: r.status === 'uploading' ? 'ready' : (r.status || 'unassigned'),
+      errorMsg: r.errorMsg || '',
+      ts: r.ts || null,
+      tsSource: r.tsSource || null,
+      tsReady: Promise.resolve(),
+      sha: r.sha || null,
+      force: !!r.force,
+    };
+    if (card.ts == null) {
+      // Re-run EXIF extraction — it wasn't finished when we last saved
+      card.tsSource = 'pending';
+      card.tsReady = extractPhotoDate(card.file).then(rr => {
+        card.ts = rr.ts;
+        card.tsSource = rr.source || 'upload-time';
+        markDirty(card);
+        const el = document.querySelector('.pcard[data-uid="' + card.uid + '"] .pcard-ts');
+        if (el) el.textContent = formatTs(card);
+      });
+    }
+    nextCardId = Math.max(nextCardId, r.uid + 1);
+    cards.push(card);
+  }
+  renderGrid();
+  showToast('Restored ' + cards.length + ' photo' + (cards.length === 1 ? '' : 's') + ' from last session');
+}
+
 loadPlants();
+restoreFromIDB();
 </script>
 </body>
 </html>
