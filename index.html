@@ -224,6 +224,7 @@
       <div id="history-strip"></div>
     </div>
     <button id="analyze-btn" style="display:none;width:100%;margin-top:10px;padding:10px 16px;background:linear-gradient(135deg,#7c3aed,#6d28d9);color:white;border:none;border-radius:12px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;box-shadow:0 2px 8px rgba(124,58,237,.3)">🔍 Analyze with AI</button>
+    <div id="analyze-last" style="display:none;font-size:11px;color:var(--muted);text-align:center;margin-top:5px"></div>
     <div class="meta-grid" id="meta-grid"></div>
     <div id="toxic-warn" class="toxic-warn" style="display:none">☠ TOXIC TO DOGS — keep away from pets</div>
     <div id="care-section" class="field-wrap"></div>
@@ -540,6 +541,20 @@ function inferHealthFromStatus(s) {
 
 function plantHealth(plant) {
   return overrides[plant.id]?.health || inferHealthFromStatus(getStatus(plant));
+}
+
+// Most recent "[Month Day, YYYY AI analysis]" tag in the notes log, or null.
+// The /api/analyze-photo endpoint writes this format on every run.
+function lastAIAnalysisDate(plantId) {
+  const notes = overrides[plantId]?.notes || '';
+  const matches = [...notes.matchAll(/\[([A-Z][a-z]+ \d{1,2}, \d{4}) AI analysis\]/g)];
+  if (matches.length === 0) return null;
+  // Most recent appears LAST in notes (chronological append). Walk backwards to find a parseable date.
+  for (let i = matches.length - 1; i >= 0; i--) {
+    const d = new Date(matches[i][1]);
+    if (!isNaN(d.getTime())) return d;
+  }
+  return null;
 }
 
 // Back-compat shim — older calls to statusTheme(text) now go through health.
@@ -975,6 +990,19 @@ function openModal(id) {
   analyzeBtn.style.display = url ? 'block' : 'none';
   analyzeBtn.innerHTML = '🔍 Analyze with AI';
   analyzeBtn.disabled = false;
+
+  // Show "last analyzed" timestamp under the button if there's a prior run
+  const lastEl = document.getElementById('analyze-last');
+  const last = url ? lastAIAnalysisDate(id) : null;
+  if (last) {
+    const days = Math.floor((Date.now() - last.getTime()) / 86400000);
+    const rel = days === 0 ? 'today' : days === 1 ? 'yesterday' : days + ' days ago';
+    const tone = days < 1 ? 'color:var(--warn-fg);font-weight:600' : '';
+    lastEl.style.cssText = 'display:block;font-size:11px;color:var(--muted);text-align:center;margin-top:5px;' + tone;
+    lastEl.textContent = 'Last AI analysis: ' + rel + ' (' + last.toLocaleDateString('en-US', { month:'short', day:'numeric' }) + ')';
+  } else {
+    lastEl.style.display = 'none';
+  }
 
   // Meta
   document.getElementById('meta-grid').innerHTML = `
@@ -1846,6 +1874,18 @@ async function analyzeCurrentPlant() {
   if (!selectedId) return;
   const btn = document.getElementById('analyze-btn');
   const plantId = selectedId;
+
+  // Cost-guard: if analyzed today, confirm before spending another request.
+  // Older analyses don't prompt — the user is presumably re-running on purpose
+  // because conditions changed.
+  const last = lastAIAnalysisDate(plantId);
+  if (last) {
+    const hoursAgo = (Date.now() - last.getTime()) / 3600000;
+    if (hoursAgo < 24) {
+      const when = hoursAgo < 1 ? 'less than an hour ago' : Math.round(hoursAgo) + 'h ago';
+      if (!confirm('This plant was analyzed ' + when + '. Run again anyway?')) return;
+    }
+  }
 
   // Make sure we have a passphrase before hitting the endpoint
   if (!plantKey) {
