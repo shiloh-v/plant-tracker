@@ -96,7 +96,7 @@
 
   /* ── Overlay + Modal ── */
   #overlay { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 100; display: flex; align-items: flex-end; justify-content: center; }
-  #overlay.hidden, #form-overlay.hidden, #lightbox.hidden, #bulk-bar.hidden, #analysis-overlay.hidden { display: none !important; }
+  #overlay.hidden, #form-overlay.hidden, #lightbox.hidden, #bulk-bar.hidden, #analysis-overlay.hidden, #move-photo-overlay.hidden { display: none !important; }
   .card.selected { outline: 3px solid var(--green); outline-offset: -1px; }
   .card .select-check { position: absolute; top: 6px; left: 6px; width: 24px; height: 24px; border-radius: 50%; background: rgba(0,0,0,.55); color: white; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700; z-index: 2; pointer-events: none; }
   .card.selected .select-check { background: var(--green); }
@@ -384,9 +384,23 @@
 <div id="lightbox" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.95);z-index:300;display:flex;align-items:center;justify-content:center;flex-direction:column;touch-action:pan-y">
   <button id="lb-close" style="position:absolute;top:14px;right:14px;background:rgba(255,255,255,.15);border:none;border-radius:50%;width:38px;height:38px;font-size:22px;color:white;cursor:pointer;font-family:inherit;line-height:1;padding:0;z-index:2">×</button>
   <button id="lb-delete" title="Delete this photo" style="position:absolute;top:14px;left:14px;background:rgba(185,28,28,.7);border:none;border-radius:50%;width:38px;height:38px;font-size:18px;cursor:pointer;font-family:inherit;line-height:1;padding:0;z-index:2">🗑</button>
+  <button id="lb-move" title="Move to another plant" style="position:absolute;top:14px;left:62px;background:rgba(45,90,39,.7);border:none;border-radius:20px;height:38px;padding:0 14px;font-size:13px;font-weight:700;color:white;cursor:pointer;font-family:inherit;line-height:1;z-index:2">↪ Move</button>
   <button id="lb-prev" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);background:rgba(255,255,255,.15);border:none;border-radius:50%;width:44px;height:44px;font-size:24px;color:white;cursor:pointer;font-family:inherit;line-height:1;padding:0;z-index:2">‹</button>
   <button id="lb-next" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:rgba(255,255,255,.15);border:none;border-radius:50%;width:44px;height:44px;font-size:24px;color:white;cursor:pointer;font-family:inherit;line-height:1;padding:0;z-index:2">›</button>
   <img id="lb-img" style="max-width:100vw;max-height:88vh;object-fit:contain;user-select:none;-webkit-user-select:none">
+</div>
+
+<!-- ── Move-photo modal ── -->
+<div id="move-photo-overlay" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:350;display:flex;align-items:center;justify-content:center;padding:18px">
+  <div id="move-photo-panel" style="background:var(--cream);border-radius:14px;padding:18px;max-width:380px;width:100%;font-family:inherit;box-shadow:0 10px 30px rgba(0,0,0,.4)">
+    <div style="font-family:'Fraunces',serif;font-size:18px;font-weight:700;margin-bottom:4px">Move photo to plant</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:12px">Currently in: <strong id="mp-current" style="color:var(--text)">—</strong></div>
+    <input type="text" id="mp-input" placeholder="Search by name, location, or ID…" autocomplete="off" style="width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:10px;font-size:14px;font-family:inherit;background:white;margin-bottom:8px;outline:none">
+    <div id="mp-list" style="max-height:260px;overflow-y:auto;border:1px solid var(--border);border-radius:10px;margin-bottom:12px"></div>
+    <div style="display:flex;gap:8px">
+      <button id="mp-cancel" style="flex:1;padding:10px;border-radius:10px;border:1.5px solid var(--border);background:var(--cream);font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">Cancel</button>
+    </div>
+  </div>
   <div id="lb-caption" style="position:absolute;bottom:18px;left:0;right:0;text-align:center;color:rgba(255,255,255,.85);font-size:13px;font-family:inherit;font-weight:600;pointer-events:none"></div>
 </div>
 
@@ -1652,6 +1666,145 @@ async function deleteCurrentLightboxPhoto() {
   }
   renderGrid();
 }
+// ── Move photo to another plant ─────────────────────────────────────────────
+// Lets the user reassign a misfiled photo without re-uploading. Uses
+// Supabase Storage's move() to rename the object atomically, then updates
+// local state + photo_ts on both plant_overrides rows.
+let mpCtx = null;   // { fromPid, ph, filtered: [], activeIdx: 0 }
+
+function openMovePhotoModal() {
+  const pid = lbPlantId;
+  const history = photoHistory[pid] || [];
+  if (!pid || history.length === 0) return;
+  const ph = history[lbIndex];
+  const fromPlant = PLANTS.find(p => p.id === pid);
+
+  mpCtx = { fromPid: pid, ph, filtered: [], activeIdx: 0 };
+  document.getElementById('mp-current').textContent = fromPlant
+    ? fromPlant.name + (fromPlant.sub ? ' (' + fromPlant.sub + ')' : '')
+    : pid;
+  document.getElementById('mp-input').value = '';
+  document.getElementById('move-photo-overlay').classList.remove('hidden');
+  refreshMpList();
+  setTimeout(() => document.getElementById('mp-input').focus(), 50);
+}
+function closeMovePhotoModal() {
+  document.getElementById('move-photo-overlay').classList.add('hidden');
+  mpCtx = null;
+}
+function refreshMpList() {
+  if (!mpCtx) return;
+  const q = document.getElementById('mp-input').value.trim().toLowerCase();
+  mpCtx.filtered = PLANTS.filter(p => {
+    if (p.id === mpCtx.fromPid) return false;
+    if (p.archived_at) return false;
+    if (!q) return true;
+    return (p.name||'').toLowerCase().includes(q)
+        || (p.sub||'').toLowerCase().includes(q)
+        || (p.sci||'').toLowerCase().includes(q)
+        || (p.loc||'').toLowerCase().includes(q)
+        || (p.id||'').toLowerCase().includes(q);
+  }).slice(0, 50);
+  const listEl = document.getElementById('mp-list');
+  if (mpCtx.filtered.length === 0) {
+    listEl.innerHTML = '<div style="padding:14px;text-align:center;color:var(--muted);font-size:13px">No matches</div>';
+  } else {
+    listEl.innerHTML = mpCtx.filtered.map((p, i) =>
+      '<div class="mp-opt" data-idx="' + i + '" style="padding:9px 12px;cursor:pointer;border-bottom:1px solid var(--border);font-size:13px;' + (i === mpCtx.activeIdx ? 'background:var(--soft)' : '') + '">' +
+        '<div style="font-weight:700">' + escHTML(p.name + (p.sub ? ' (' + p.sub + ')' : '')) + '</div>' +
+        '<div style="font-size:11px;color:var(--muted);margin-top:1px">' + escHTML(p.loc || '') + ' · ' + escHTML(p.id) + '</div>' +
+      '</div>'
+    ).join('');
+  }
+}
+function escHTML(s) { return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
+
+async function executeMovePhoto(toPlant) {
+  const ctx = mpCtx;
+  if (!ctx) return;
+  const { fromPid, ph } = ctx;
+  closeMovePhotoModal();
+
+  // Pick a non-colliding target filename (same ts as source, plus a -mv suffix if needed)
+  const targetHist = photoHistory[toPlant.id] || [];
+  const existingNames = new Set(targetHist.map(p => p.filename));
+  let targetName = ph.filename;
+  let n = 1;
+  while (existingNames.has(targetName)) {
+    targetName = ph.ts + '-mv' + n + '.jpg';
+    n++;
+  }
+  const fromPath = fromPid + '/' + ph.filename;
+  const toPath   = toPlant.id + '/' + targetName;
+
+  const btn = document.getElementById('lb-move');
+  btn.disabled = true;
+  const origText = btn.textContent;
+  btn.textContent = '…';
+
+  const { error } = await withKey('move photo', () =>
+    sb.storage.from(BUCKET).move(fromPath, toPath)
+  );
+  if (error) {
+    alert('Move failed: ' + error.message);
+    btn.disabled = false;
+    btn.textContent = origText;
+    return;
+  }
+
+  // Update local state — remove from source, add to target
+  const fromHist = photoHistory[fromPid] || [];
+  const idx = fromHist.findIndex(p => p.filename === ph.filename);
+  if (idx >= 0) fromHist.splice(idx, 1);
+  if (fromHist.length === 0) delete photoURLs[fromPid];
+  else                       photoURLs[fromPid] = fromHist[0].url;
+
+  const newUrl = `${SUPABASE_URL}/storage/v1/object/public/${BUCKET}/${toPath}?t=${Date.now()}`;
+  const newEntry = { url: newUrl, ts: ph.ts, label: ph.label, filename: targetName };
+  if (!photoHistory[toPlant.id]) photoHistory[toPlant.id] = [];
+  photoHistory[toPlant.id].push(newEntry);
+  photoHistory[toPlant.id].sort((a, b) => b.ts - a.ts);
+  photoURLs[toPlant.id] = photoHistory[toPlant.id][0].url;
+
+  // Sync photo_ts on both overrides (preserve existing status/notes)
+  await syncPhotoTsForMove(fromPid, fromHist.length ? fromHist[0].ts : null);
+  await syncPhotoTsForMove(toPlant.id, photoHistory[toPlant.id][0].ts);
+
+  // Update the lightbox view
+  if (fromHist.length === 0) {
+    closeLightbox();
+  } else {
+    lbIndex = Math.min(lbIndex, fromHist.length - 1);
+    renderLightbox();
+  }
+
+  // Refresh the detail modal if it's open for the source plant
+  if (selectedId === fromPid) {
+    const url = photoURLs[fromPid];
+    document.getElementById('photo-wrap').innerHTML = url
+      ? '<img src="' + url + '" alt="">'
+      : '<div class="no-photo"><span>🌱</span><p>Tap to add photo</p></div>';
+    document.getElementById('photo-btn').textContent = url ? '📷 Update photo' : '📷 Add photo';
+    document.getElementById('download-btn').style.display = url ? 'block' : 'none';
+    renderHistoryStrip(fromPid);
+  }
+  renderGrid();
+  showToast('Moved photo to ' + toPlant.name);
+
+  btn.disabled = false;
+  btn.textContent = origText;
+}
+
+async function syncPhotoTsForMove(plantId, newTs) {
+  // Read existing override (preserve status/notes/health/etc.), update photo_ts only
+  const fetched = await sb.from('plant_overrides').select('*').eq('id', plantId).limit(1);
+  const existing = (fetched.data && fetched.data[0]) || { id: plantId };
+  const row = { ...existing, photo_ts: newTs, updated_at: new Date().toISOString() };
+  const res = await withKey('sync photo timestamp', () =>
+    sb.from('plant_overrides').upsert(row).select(), { expectRows: true });
+  if (!res.error) overrides[plantId] = row;
+}
+
 async function downloadPhoto(id) {
   const url = photoURLs[id];
   if (!url) return;
@@ -2184,6 +2337,40 @@ document.getElementById('lb-close').addEventListener('click', closeLightbox);
 document.getElementById('lb-prev').addEventListener('click', e => { e.stopPropagation(); lightboxStep(-1); });
 document.getElementById('lb-next').addEventListener('click', e => { e.stopPropagation(); lightboxStep(1); });
 document.getElementById('lb-delete').addEventListener('click', e => { e.stopPropagation(); deleteCurrentLightboxPhoto(); });
+document.getElementById('lb-move').addEventListener('click', e => { e.stopPropagation(); openMovePhotoModal(); });
+
+// Move-photo modal wiring
+(function wireMovePhotoModal() {
+  const input = document.getElementById('mp-input');
+  const list  = document.getElementById('mp-list');
+  const overlay = document.getElementById('move-photo-overlay');
+
+  function pickByIndex(idx) {
+    if (!mpCtx) return;
+    const plant = mpCtx.filtered[idx];
+    if (plant) executeMovePhoto(plant);
+  }
+
+  input.addEventListener('input', () => {
+    if (mpCtx) mpCtx.activeIdx = 0;
+    refreshMpList();
+  });
+  input.addEventListener('keydown', e => {
+    if (!mpCtx) return;
+    if (e.key === 'ArrowDown')      { e.preventDefault(); mpCtx.activeIdx = Math.min(mpCtx.activeIdx + 1, mpCtx.filtered.length - 1); refreshMpList(); }
+    else if (e.key === 'ArrowUp')   { e.preventDefault(); mpCtx.activeIdx = Math.max(mpCtx.activeIdx - 1, 0); refreshMpList(); }
+    else if (e.key === 'Enter')     { e.preventDefault(); pickByIndex(mpCtx.activeIdx); }
+    else if (e.key === 'Escape')    { closeMovePhotoModal(); }
+  });
+  list.addEventListener('mousedown', e => {
+    const opt = e.target.closest('.mp-opt');
+    if (!opt) return;
+    e.preventDefault();
+    pickByIndex(parseInt(opt.dataset.idx, 10));
+  });
+  document.getElementById('mp-cancel').addEventListener('click', closeMovePhotoModal);
+  overlay.addEventListener('click', e => { if (e.target === overlay) closeMovePhotoModal(); });
+})();
 // Click on backdrop closes. Image is double-click to zoom (mouse) or pinch
 // (touch); single-click does not close so it doesn't conflict with double-click.
 document.getElementById('lightbox').addEventListener('click', e => {

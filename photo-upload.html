@@ -314,7 +314,7 @@
   <div id="cluster-panel">
     <button id="cluster-close" title="Close">×</button>
     <button id="cluster-startover" title="Discard saved progress and start over" style="float:right;background:var(--soft);border:1px solid var(--border);border-radius:14px;font-size:11px;font-weight:700;padding:5px 10px;cursor:pointer;color:var(--muted);font-family:inherit;margin-right:6px">↺ Start over</button>
-    <h2>🤖 Auto-cluster with AI</h2>
+    <h2>🤖 Auto-cluster with AI <span id="cluster-save-badge" style="display:none;font-family:'Nunito',sans-serif;font-size:11px;font-weight:700;color:var(--good-fg);background:var(--good-bg);padding:3px 9px;border-radius:10px;margin-left:8px;vertical-align:middle"></span></h2>
     <div class="sub">First, AI groups your unassigned photos by which look like the same plant. Then you label each group with a plant. Nothing's sent to the API until you press a button here. <strong>Progress saves every 6 photos</strong> — close the panel, reload, hit an error… whatever. Reopen and you'll pick up where you left off.</div>
     <div id="cluster-steps"></div>
   </div>
@@ -1345,12 +1345,29 @@ function persistClusterSession() {
     const data = serializeClusterState();
     if (!data) return;
     localStorage.setItem(CLUSTER_SAVE_KEY, JSON.stringify(data));
-    // Track in-memory so the progress UI can show "✓ Saved · N photos"
     if (clusterState) {
       clusterState.lastSavedAt = Date.now();
       clusterState.lastSavedReps = clusterState.cardCluster.size;
+      clusterState.lastSavedClusters = clusterState.clusters.size;
     }
-  } catch (e) { console.warn('persist cluster session failed:', e); }
+    updateSaveBadge();
+  } catch (e) {
+    console.warn('persist cluster session failed:', e);
+    // Surface storage errors so the user knows progress isn't being saved
+    showToast('⚠ Couldn\'t save progress: ' + (e.message || 'storage error') + '. Quota may be full.', 6000);
+  }
+}
+
+// Visible "Saved" badge in the panel header so user can verify persistence is working
+function updateSaveBadge() {
+  const badge = document.getElementById('cluster-save-badge');
+  if (!badge) return;
+  if (!clusterState || clusterState.lastSavedAt == null) {
+    badge.style.display = 'none';
+    return;
+  }
+  badge.style.display = 'inline-block';
+  badge.textContent = '✓ Saved · ' + (clusterState.lastSavedClusters || 0) + ' clusters · ' + (clusterState.lastSavedReps || 0) + ' photos';
 }
 function loadPersistedClusterSession() {
   try {
@@ -2031,6 +2048,7 @@ function toggleRejectCluster(clusterId) {
   else                                       clusterState.rejected.add(clusterId);
   refreshClusterHead(clusterId);
   refreshReviewSummary();
+  persistClusterSession();
 }
 
 // Inline plant-picker combobox for cluster labeling. Selecting writes to
@@ -2076,6 +2094,7 @@ function buildClusterLabelCombobox(cluster) {
     close();
     refreshClusterHead(cluster.id);
     refreshReviewSummary();
+    persistClusterSession();
   }
   function clearPick() {
     cluster.plantId = '';
@@ -2085,6 +2104,7 @@ function buildClusterLabelCombobox(cluster) {
     if (x) x.remove();
     refreshClusterHead(cluster.id);
     refreshReviewSummary();
+    persistClusterSession();
   }
 
   input.addEventListener('focus', () => { activeIdx = 0; open(); });
@@ -2251,12 +2271,17 @@ function openClusterPanel() {
   const saved = loadPersistedClusterSession();
   if (saved && saved.step && saved.step !== 'idle') {
     clusterState = deserializeClusterState(saved);
-    showToast('Resumed clustering session from where you left off', 2500);
+    // Surface saved metadata on the in-memory state so the badge shows immediately
+    clusterState.lastSavedAt       = saved.savedAt || Date.now();
+    clusterState.lastSavedReps     = clusterState.cardCluster.size;
+    clusterState.lastSavedClusters = clusterState.clusters.size;
+    showToast('Resumed clustering session: ' + clusterState.clusters.size + ' clusters · ' + clusterState.cardCluster.size + ' photos', 3500);
   } else {
     resetClusterState();
   }
   document.getElementById('cluster-overlay').classList.remove('hidden');
   renderClusterPanel();
+  updateSaveBadge();
 }
 function closeClusterPanel() {
   document.getElementById('cluster-overlay').classList.add('hidden');
