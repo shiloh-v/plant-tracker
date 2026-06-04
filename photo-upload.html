@@ -1216,14 +1216,14 @@ async function restoreFromIDB() {
 //                         Apply commits cards in labeled clusters; unlabeled
 //                         clusters stay as unassigned cards.
 //
-const MATCH_BATCH_SIZE  = 6;         // smaller batches so payload stays under Vercel's 4.5MB cap
-const MATCH_TEST_SIZE   = 30;        // bigger test batch for clustering — need enough photos to see groups form
-const CARD_THUMB_PX     = 400;       // fresh card images per call
-const CARD_THUMB_QUALITY = 0.72;
-const CENTROID_THUMB_PX = 180;       // shrunk hard — the centroid list grows every batch
-const CENTROID_THUMB_QUALITY = 0.55;
-const MAX_CENTROIDS     = 50;        // cap centroids per call; biggest clusters win the slots
-const DHASH_THRESHOLD   = 5;         // <=5 bits diff out of 64 → "near-duplicate"
+const MATCH_BATCH_SIZE   = 5;        // small batches so total payload stays under Vercel's 4.5MB cap
+const MATCH_TEST_SIZE    = 30;       // bigger test batch for clustering — need enough photos to see groups form
+const CARD_THUMB_PX      = 460;      // fresh card images per call
+const CARD_THUMB_QUALITY = 0.74;
+const CENTROID_THUMB_PX  = 280;      // big enough for AI to recognize matches — shrinking too far causes over-clustering
+const CENTROID_THUMB_QUALITY = 0.70;
+const MAX_CENTROIDS      = 55;       // cap centroids per call; biggest clusters win the slots
+const DHASH_THRESHOLD    = 5;        // <=5 bits diff out of 64 → "near-duplicate"
 
 let clusterState = null;             // see resetClusterState()
 
@@ -1657,6 +1657,7 @@ function renderClusterPanel() {
       active: !done,
       body: done
         ? '<div class="result">Clustering complete. Spent <strong>$' + fullCost.toFixed(3) + '</strong>. ' + s.clusters.size + ' cluster' + (s.clusters.size === 1 ? '' : 's') + ' from ' + s.groups.length + ' unique photo' + (s.groups.length === 1 ? '' : 's') + '.</div>' +
+          (countSmallClusters(s) > 0 ? consolidateCtaHtml(s) : '') +
           '<div class="body" style="margin-top:8px"><strong>4. Label each cluster</strong> — pick the plant for each group below. Click a card to remove it from its cluster, or use the bucket controls.</div>'
         : '<div class="muted">Cluster the remaining ' + remaining + ' photos. Estimated cost: <strong>~$' + estimateFull + '</strong> (extrapolated from test).</div>' +
           '<div class="row"><button class="primary" data-step="full">Cluster all (~$' + estimateFull + ')</button></div>'
@@ -1696,6 +1697,26 @@ function renderClusterPanel() {
   // Bucket review handlers (only present after full clustering, in the
   // labeling phase — test preview is read-only)
   if (clusterState.step === 'clustered') wireUpBucketHandlers();
+}
+
+function countSmallClusters(s, threshold) {
+  threshold = threshold || 3;
+  let n = 0;
+  for (const c of s.clusters.values()) if (c.repUids.length < threshold) n++;
+  return n;
+}
+function consolidateCtaHtml(s) {
+  const smallCount = countSmallClusters(s);
+  const total = s.clusters.size;
+  const reps = [...s.clusters.values()].filter(c => c.repUids.length < 3).reduce((acc, c) => acc + c.repUids.length, 0);
+  const estCost = (reps / MATCH_BATCH_SIZE * 0.05).toFixed(2);
+  return (
+    '<div style="margin-top:8px;padding:10px 12px;background:#fff8e1;border-left:3px solid #f59e0b;border-radius:6px;font-size:12px;line-height:1.4">' +
+      '<strong>' + smallCount + ' of ' + total + ' clusters have fewer than 3 photos.</strong> ' +
+      'AI may have over-clustered. Try <strong>Consolidate</strong> to re-run those small clusters against your larger ones — singletons that actually belong to a bigger group will get absorbed.' +
+      '<div class="row" style="margin-top:8px"><button class="secondary" data-step="consolidate">Consolidate ' + reps + ' photos (~$' + estCost + ')</button></div>' +
+    '</div>'
+  );
 }
 
 function stepHtml({ key, title, locked, done, active, body }) {
@@ -2027,6 +2048,46 @@ async function handleStepClick(step) {
       s.progress = null;
       persistClusterSession();
       renderClusterPanel();
+    } else if (step === 'consolidate') {
+      // Take small clusters' reps, remove from current cluster assignments,
+      // and re-cluster them against the surviving larger clusters. Helps
+      // recover from over-clustering runs where many singletons formed.
+      const SMALL_THRESHOLD = 3;       // <3 members = small
+      const small = [...s.clusters.values()].filter(c => c.repUids.length < SMALL_THRESHOLD);
+      if (small.length === 0) {
+        showToast('No small clusters to consolidate — every cluster has ' + SMALL_THRESHOLD + '+ photos');
+        return;
+      }
+      const reps = small.flatMap(c => c.repUids);
+      const bigCount = s.clusters.size - small.length;
+      const estimateCost = (reps.length / MATCH_BATCH_SIZE * 0.05).toFixed(2);
+      if (!confirm(
+        'Re-cluster ' + reps.length + ' photos from ' + small.length + ' small clusters against your ' + bigCount + ' larger clusters?\n\n' +
+        'Estimated cost: ~$' + estimateCost + '\n\n' +
+        'AI will try to absorb singletons into bigger groups. Photos that genuinely belong on their own will stay as new singleton clusters.'
+      )) return;
+
+      // Detach small clusters
+      for (const c of small) {
+        s.clusters.delete(c.id);
+        for (const uid of c.repUids) s.cardCluster.delete(uid);
+      }
+      persistClusterSession();
+
+      s.progress = { label: 'Consolidating small clusters…', done: 0, total: 1 };
+      renderClusterPanel();
+      const usage = await runClusterBatches(reps, (d, t, u) => {
+        s.progress = { label: 'Consolidating small clusters…', done: d, total: t, usage: u };
+        renderClusterPanel();
+      });
+      s.consolidateUsage = (s.consolidateUsage || { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 });
+      mergeUsage(s.consolidateUsage, usage);
+      s.progress = null;
+      persistClusterSession();
+      renderClusterPanel();
+      const newSmall = [...s.clusters.values()].filter(c => c.repUids.length < SMALL_THRESHOLD).length;
+      const absorbed = small.length - newSmall;
+      showToast('Consolidation complete — ' + absorbed + ' of ' + small.length + ' small clusters absorbed. Spent ~$' + estimateCostUSD(usage).toFixed(3) + '.');
     } else if (step === 'apply') {
       applyClusterLabels();
       clearPersistedClusterSession();

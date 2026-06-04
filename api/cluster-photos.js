@@ -96,11 +96,11 @@ export default async function handler(req, res) {
       type: 'text',
       text:
         "\nNew cards to assign. For each, decide:\n" +
-        "  - clusterId: the id of an existing cluster that this card belongs to, or null to start a new cluster.\n" +
+        "  - clusterId: the id of an existing cluster this card belongs to, or null to start a new cluster.\n" +
         "  - newLabel: if clusterId is null, a short descriptive label (e.g. \"variegated pothos in terracotta\", \"snake plant tall\"). Empty string otherwise.\n" +
-        "  - confidence: \"high\" (clearly same), \"medium\" (probably same), \"low\" (guess).\n" +
-        "  - note: one short sentence about the cue.\n\n" +
-        "When in doubt, prefer creating a NEW cluster over assigning to an existing one — the user can merge clusters later but cannot easily split them.\n\n" +
+        "  - confidence: \"high\" (clearly same), \"medium\" (probably same), \"low\" (plausible).\n" +
+        "  - note: one short sentence about the visual cue.\n\n" +
+        "Be willing to assign cards to existing clusters at medium confidence — the user reviews everything and can correct mistakes. Only create a NEW cluster when no existing cluster is a reasonable fit. Two photos of the same plant at different angles, distances, lighting, or growth stages SHOULD share a cluster. Distinguishing cues that matter most: pot/container, room/location/background, distinctive variegation patterns, plant size, growth habit. Cues that vary normally and should NOT prevent matching: lighting, angle, zoom, focus, time of day, season.\n\n" +
         "Cards:"
     });
     for (const c of cards) {
@@ -117,12 +117,12 @@ export default async function handler(req, res) {
         type: 'text',
         text:
           "You are grouping unlabeled plant photos by which depict the SAME INDIVIDUAL PLANT — not the same species. " +
-          "Two photos of the same plant from different angles, lighting, or growth stages belong in the same cluster. " +
+          "Two photos of the same plant taken at different angles, distances, lighting, focus, or growth stages belong in the same cluster. " +
           "Two different plants of the same species (e.g., two monsteras in different pots or locations) belong in DIFFERENT clusters. " +
-          "Use leaf shape and color, growth pattern, pot/container, location/background, variegation patterns, and any unique markings as cues. " +
+          "Cues that strongly identify the same plant: pot/container, room/location/background, distinctive variegation patterns, plant size, growth habit, unique markings. " +
+          "Cues that vary normally between photos and should NOT block a match: lighting, angle, zoom, focus, time of day. " +
           "Output strictly conforms to the supplied JSON schema. " +
-          "Prefer over-clustering (creating new clusters) over under-clustering (lumping different plants together) — " +
-          "the user can merge clusters later but cannot easily split them.",
+          "Be willing to assign at medium confidence — the user reviews everything. Only create a new cluster when the card is clearly a different plant from every existing cluster.",
         cache_control: { type: 'ephemeral' }
       }],
       messages: [{ role: 'user', content: userContent }]
