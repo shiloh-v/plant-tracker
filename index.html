@@ -96,7 +96,7 @@
 
   /* ── Overlay + Modal ── */
   #overlay { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 100; display: flex; align-items: flex-end; justify-content: center; }
-  #overlay.hidden, #form-overlay.hidden, #lightbox.hidden, #bulk-bar.hidden { display: none !important; }
+  #overlay.hidden, #form-overlay.hidden, #lightbox.hidden, #bulk-bar.hidden, #analysis-overlay.hidden { display: none !important; }
   .card.selected { outline: 3px solid var(--green); outline-offset: -1px; }
   .card .select-check { position: absolute; top: 6px; left: 6px; width: 24px; height: 24px; border-radius: 50%; background: rgba(0,0,0,.55); color: white; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700; z-index: 2; pointer-events: none; }
   .card.selected .select-check { background: var(--green); }
@@ -362,6 +362,21 @@
   </div>
   <button data-bulk-kind="water"   style="background:var(--cream);color:var(--green);border:none;border-radius:18px;padding:8px 14px;font-size:13px;font-weight:700;font-family:inherit;cursor:pointer">💧 Water</button>
   <button data-bulk-kind="feed"    style="background:var(--cream);color:var(--green);border:none;border-radius:18px;padding:8px 14px;font-size:13px;font-weight:700;font-family:inherit;cursor:pointer">🍴 Feed</button>
+</div>
+
+<!-- ── AI analysis result modal ── -->
+<div id="analysis-overlay" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:140;display:flex;align-items:center;justify-content:center;padding:18px">
+  <div id="analysis-modal" style="background:var(--cream);border-radius:18px;padding:0 20px 20px;max-width:480px;width:100%;max-height:90vh;overflow-y:auto;font-family:inherit;box-shadow:0 12px 40px rgba(0,0,0,.4)">
+    <div style="position:sticky;top:0;background:var(--cream);padding-top:18px;padding-bottom:8px;display:flex;justify-content:space-between;align-items:flex-start;gap:10px;border-bottom:1px solid var(--border);margin-bottom:12px">
+      <div style="flex:1;min-width:0">
+        <div id="analysis-modal-plant" style="font-family:'Fraunces',serif;font-size:17px;font-weight:700;line-height:1.2"></div>
+        <div id="analysis-modal-when" style="font-size:11px;color:var(--muted);margin-top:2px">AI analysis · just now</div>
+      </div>
+      <button id="analysis-close" style="background:var(--soft);border:none;border-radius:50%;width:30px;height:30px;font-size:18px;cursor:pointer;color:var(--muted);font-family:inherit;line-height:1;padding:0;flex-shrink:0">×</button>
+    </div>
+    <div id="analysis-modal-body"></div>
+    <button id="analysis-modal-done" style="width:100%;margin-top:14px;padding:12px;background:var(--green);color:white;border:none;border-radius:12px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit">Got it</button>
+  </div>
 </div>
 
 <!-- ── Photo lightbox ── -->
@@ -1882,11 +1897,8 @@ async function analyzeCurrentPlant() {
       renderGrid();
     }
 
-    const a = body.analysis;
-    const summary = a
-      ? 'Health: ' + a.health + (a.action_items?.length ? ' · ' + a.action_items.length + ' action item' + (a.action_items.length === 1 ? '' : 's') : '')
-      : 'Analysis saved';
-    showToast('✓ ' + summary + ' — see Notes');
+    // Show the rich analysis result modal
+    showAnalysisModal(plantId, body.analysis);
 
     btn.innerHTML = '✓ Analyzed';
     setTimeout(() => {
@@ -1902,6 +1914,78 @@ async function analyzeCurrentPlant() {
 }
 
 document.getElementById('analyze-btn').addEventListener('click', analyzeCurrentPlant);
+
+// ── Post-analysis summary modal ─────────────────────────────────────────────
+function showAnalysisModal(plantId, analysis) {
+  if (!analysis) return;
+  const plant = PLANTS.find(p => p.id === plantId);
+  const hm = healthMeta(analysis.health);
+
+  // Header line
+  const subline = plant?.sub ? ` <span style="color:var(--muted);font-weight:500">— ${plant.sub.replace(/</g,'&lt;')}</span>` : '';
+  document.getElementById('analysis-modal-plant').innerHTML = (plant?.name || plantId) + subline;
+  document.getElementById('analysis-modal-when').textContent = 'AI analysis · ' + new Date().toLocaleString('en-US', { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' });
+
+  // Body sections — health pill, ID mismatch warning, change vs prior,
+  // observations, action items. Each section is skipped if its data is empty.
+  const sections = [];
+
+  sections.push(
+    '<div style="margin-bottom:14px"><span class="health-badge" style="color:' + hm.color + ';background:' + hm.bg + ';font-size:13px;padding:5px 12px">' +
+    (hm.emoji ? hm.emoji + ' ' : '') + hm.label + '</span></div>'
+  );
+
+  if (analysis.id_check && analysis.id_check.matches === false) {
+    const conf = analysis.id_check.confidence || 'medium';
+    sections.push(
+      '<div style="padding:10px 12px;background:var(--warn-bg);color:var(--warn-fg);border-radius:10px;font-size:13px;margin-bottom:12px;line-height:1.4">' +
+      '<strong>⚠ Possible mis-ID</strong><br>Photo looks like <strong>' + (analysis.id_check.actual_species || 'a different species').replace(/</g,'&lt;') + '</strong> ' +
+      '(' + conf + ' confidence), not ' + (plant?.name || 'the recorded species').replace(/</g,'&lt;') + '.</div>'
+    );
+  }
+
+  if (analysis.change_vs_prior && analysis.change_vs_prior.trim()) {
+    sections.push(
+      '<div style="margin-bottom:14px"><div class="field-label" style="margin-bottom:5px">Change since last analysis</div>' +
+      '<div style="font-size:13px;line-height:1.5;color:var(--text)">' + analysis.change_vs_prior.replace(/</g,'&lt;') + '</div></div>'
+    );
+  }
+
+  if (analysis.observations && analysis.observations.length) {
+    sections.push(
+      '<div style="margin-bottom:14px"><div class="field-label" style="margin-bottom:5px">What I see</div>' +
+      '<ul style="margin:0;padding-left:18px;font-size:13px;line-height:1.55;color:var(--text)">' +
+      analysis.observations.map(o => '<li style="margin-bottom:4px">' + o.replace(/</g,'&lt;') + '</li>').join('') +
+      '</ul></div>'
+    );
+  }
+
+  if (analysis.action_items && analysis.action_items.length) {
+    sections.push(
+      '<div style="margin-bottom:6px;padding:12px;background:var(--good-bg);border-radius:10px"><div class="field-label" style="color:var(--good-fg);margin-bottom:6px">✓ Action items</div>' +
+      '<ul style="margin:0;padding-left:18px;font-size:13px;line-height:1.55;color:var(--good-fg);font-weight:600">' +
+      analysis.action_items.map(a => '<li style="margin-bottom:4px">' + a.replace(/</g,'&lt;') + '</li>').join('') +
+      '</ul></div>'
+    );
+  } else {
+    sections.push(
+      '<div style="padding:10px 12px;background:var(--good-bg);color:var(--good-fg);border-radius:10px;font-size:13px;font-weight:600;text-align:center">✓ No actions needed right now</div>'
+    );
+  }
+
+  document.getElementById('analysis-modal-body').innerHTML = sections.join('');
+  document.getElementById('analysis-overlay').classList.remove('hidden');
+}
+
+function closeAnalysisModal() {
+  document.getElementById('analysis-overlay').classList.add('hidden');
+}
+
+document.getElementById('analysis-close').addEventListener('click', closeAnalysisModal);
+document.getElementById('analysis-modal-done').addEventListener('click', closeAnalysisModal);
+document.getElementById('analysis-overlay').addEventListener('click', e => {
+  if (e.target.id === 'analysis-overlay') closeAnalysisModal();
+});
 document.getElementById('form-close').addEventListener('click', closePlantForm);
 document.getElementById('form-cancel').addEventListener('click', closePlantForm);
 document.getElementById('form-save').addEventListener('click', savePlant);
