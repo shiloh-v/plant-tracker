@@ -170,12 +170,28 @@
   .bucket-cell.low    { border-color: #f59e0b; }
   .bucket-cell.rejected { opacity: .35; border-color: var(--danger-fg); }
   .bucket-cell.rejected::after { content: '✕'; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: var(--danger-fg); font-size: 28px; font-weight: 700; text-shadow: 0 1px 4px white; }
+  .bucket-cell.read-only { cursor: default; }
   .bucket-cell .grp-badge { position: absolute; top: 3px; right: 3px; background: rgba(0,0,0,.6); color: white; font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 5px; line-height: 1.3; }
   .bucket-cell .conf-dot { position: absolute; bottom: 3px; left: 3px; width: 9px; height: 9px; border-radius: 50%; box-shadow: 0 0 0 1.5px white; }
   .bucket-cell.high   .conf-dot { background: var(--good-fg); }
   .bucket-cell.medium .conf-dot { background: var(--info-fg); }
   .bucket-cell.low    .conf-dot { background: #f59e0b; }
   .bucket.no-match { background: var(--soft); }
+  .bucket.rejected-cluster { opacity: .5; background: var(--soft); }
+  .cluster-cb-row { padding: 6px 10px 8px; border-bottom: 1px solid var(--border); }
+  .cluster-cb-row .combobox { position: relative; }
+  .cluster-cb-row .combobox input { width: 100%; padding: 7px 28px 7px 10px; border-radius: 8px; border: 1.5px solid var(--border); font-size: 12px; font-family: inherit; outline: none; background: white; }
+  .cluster-cb-row .combobox.has-pick input { border-color: var(--green); background: #f4faf2; }
+  .cluster-cb-row .combobox input:focus { border-color: var(--green); }
+  .cluster-cb-row .combobox .clear { position: absolute; top: 50%; right: 8px; transform: translateY(-50%); background: none; border: none; color: var(--muted); font-size: 14px; cursor: pointer; padding: 0; line-height: 1; }
+  .cluster-cb-row .combobox .list { position: absolute; top: calc(100% + 4px); left: 0; right: 0; background: var(--cream); border: 1px solid var(--border); border-radius: 8px; max-height: 200px; overflow-y: auto; box-shadow: 0 6px 20px rgba(0,0,0,.18); z-index: 40; display: none; }
+  .cluster-cb-row .combobox.open .list { display: block; }
+  .cluster-cb-row .combobox .list .opt { padding: 7px 10px; font-size: 12px; cursor: pointer; border-bottom: 1px solid var(--border); }
+  .cluster-cb-row .combobox .list .opt:last-child { border-bottom: none; }
+  .cluster-cb-row .combobox .list .opt:hover, .cluster-cb-row .combobox .list .opt.active { background: var(--soft); }
+  .cluster-cb-row .combobox .opt-name { font-weight: 700; }
+  .cluster-cb-row .combobox .opt-meta { font-size: 10.5px; color: var(--muted); margin-top: 1px; }
+  .cluster-cb-row .combobox .empty { padding: 10px; font-size: 12px; color: var(--muted); text-align: center; }
   .review-summary { position: sticky; bottom: 0; background: var(--cream); border-top: 1px solid var(--border); padding: 10px 12px; margin: 12px -22px -20px; display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
   .review-summary .counts { font-size: 13px; font-weight: 700; }
   .review-summary .actions { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -235,7 +251,7 @@
   <div id="summary-row" style="display:none">
     <div id="summary"></div>
     <div class="row-actions">
-      <button id="auto-cluster" class="auto-btn">🤖 Auto-assign</button>
+      <button id="auto-cluster" class="auto-btn">🤖 Auto-cluster</button>
       <button id="clear-done">Clear done</button>
       <button id="clear-all">Clear all</button>
       <button id="upload-bot" class="primary" disabled>Upload All Ready</button>
@@ -257,8 +273,8 @@
 <div id="cluster-overlay" class="hidden">
   <div id="cluster-panel">
     <button id="cluster-close" title="Close">×</button>
-    <h2>🤖 Auto-assign with AI</h2>
-    <div class="sub">Match each unassigned photo against your plants' current reference photos. Nothing's sent to the API until you press a button here.</div>
+    <h2>🤖 Auto-cluster with AI</h2>
+    <div class="sub">First, AI groups your unassigned photos by which look like the same plant. Then you label each group with a plant. Nothing's sent to the API until you press a button here.</div>
     <div id="cluster-steps"></div>
   </div>
 </div>
@@ -1177,41 +1193,49 @@ async function restoreFromIDB() {
   showToast('Restored ' + cards.length + ' photo' + (cards.length === 1 ? '' : 's') + ' from last session' + droppedSuffix);
 }
 
-// ── Auto-cluster (AI matching) ──────────────────────────────────────────────
+// ── Auto-cluster ────────────────────────────────────────────────────────────
 //
-// Workflow:
-//   1. Local dedup   — perceptual-hash unassigned cards, group near-duplicates.
-//                      Each group has a representative card; only that one is
-//                      sent to the API. After matching, the rest in the group
-//                      inherit the match.
-//   2. Load refs     — fetch one current cover photo per plant. Thumbnail to
-//                      ~200px and base64-encode for API transit.
-//   3. Test on N     — small batch (default 10 representatives) to verify
-//                      match quality before committing to the full run.
-//   4. Match all     — process remaining representatives in batches of
-//                      MATCH_BATCH_SIZE. With prompt caching, only the first
-//                      batch pays full reference-token cost.
-//   5. Apply         — for each result, set the rep card's plantId + status,
-//                      propagate to its near-dup group, and skip low/none.
+// Two-phase workflow:
+//
+//   Phase A — Grouping (AI clusters photos by which look like the same plant)
+//     1. Local dedup    — perceptual-hash unassigned cards, group near-dups.
+//                         Each group has a representative card; only that one
+//                         is sent to the API. After clustering, the rest in
+//                         the group inherit the cluster.
+//     2. Test cluster   — small batch (default 30 representatives) so you can
+//                         eyeball whether AI is grouping correctly before
+//                         committing to the full run.
+//     3. Cluster all    — process remaining representatives in batches.
+//                         Centroids of existing clusters are sent each call
+//                         (cached after first) so new cards either join an
+//                         existing cluster or start a new one.
+//
+//   Phase B — Labeling (you assign a plant to each cluster)
+//     4. Review & label — per-cluster bucket UI with a plant combobox.
+//                         Apply commits cards in labeled clusters; unlabeled
+//                         clusters stay as unassigned cards.
 //
 const MATCH_BATCH_SIZE = 12;
-const MATCH_TEST_SIZE  = 10;
-const REF_THUMB_PX     = 200;
+const MATCH_TEST_SIZE  = 30;         // bigger test batch for clustering — need enough photos to see groups form
 const CARD_THUMB_PX    = 500;
+const CENTROID_THUMB_PX = 350;       // centroids of growing cluster list — smaller to keep token cost down
 const DHASH_THRESHOLD  = 5;          // <=5 bits diff out of 64 → "near-duplicate"
 
 let clusterState = null;             // see resetClusterState()
 
 function resetClusterState() {
   clusterState = {
-    step: 'idle',                    // idle | dedup-done | refs-ready | tested | matched
+    step: 'idle',                    // idle | dedup-done | tested | clustered
     groups: [],                      // [[uid, uid, ...]] — first is representative
     repByUid: new Map(),             // uid -> representativeUid
-    references: [],                  // [{id, name, sub, dataUrl}]
-    plantsWithoutRefs: [],
     thumbCache: new Map(),           // uid -> dataUrl (500px JPEG)
-    matches: new Map(),              // repUid -> { plantId, confidence, note }
-    rejected: new Set(),             // repUids the user has rejected during review
+    centroidCache: new Map(),        // uid -> dataUrl (350px JPEG, for centroids sent to API)
+    clusters: new Map(),             // clusterId -> { id, label, repUids: [], plantId: '' }
+    cardCluster: new Map(),          // repUid -> clusterId
+    cardNotes: new Map(),            // repUid -> { confidence, note }
+    nextClusterId: 1,
+    rejected: new Set(),             // clusterIds the user has marked as skip
+    excludedCards: new Set(),        // repUids the user has excluded from their cluster
     tested: false,
     testUsage: null,
     fullUsage: null,
@@ -1307,45 +1331,9 @@ async function runDedup(onProgress) {
   return { total: unassigned.length, unique: groups.length, collapsed: unassigned.length - groups.length };
 }
 
-// ── Step 2: load reference cover photos ─────────────────────────────────────
-async function loadReferencesForCluster(onProgress) {
-  const refs = [];
-  const missing = [];
-  // Concurrency limit so we don't hammer Supabase
-  const queue = PLANTS.slice();
-  let done = 0;
-  const CONC = 6;
-  async function worker() {
-    while (queue.length) {
-      const p = queue.shift();
-      try {
-        const list = await sb.storage.from(BUCKET).list(p.id, {
-          limit: 1,
-          sortBy: { column: 'name', order: 'desc' }
-        });
-        const latest = (list.data || []).find(f => f.name?.endsWith('.jpg'));
-        if (!latest) { missing.push(p); }
-        else {
-          const url = `${SUPABASE_URL}/storage/v1/object/public/${BUCKET}/${p.id}/${latest.name}`;
-          const img = await loadImageFromUrl(url);
-          const dataUrl = thumbnailToDataUrl(img, REF_THUMB_PX, 0.75);
-          refs.push({ id: p.id, name: p.name, sub: p.sub || '', dataUrl });
-        }
-      } catch (e) {
-        missing.push(p);
-      }
-      done++;
-      if (onProgress) onProgress(done, PLANTS.length);
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(CONC, PLANTS.length) }, worker));
-  clusterState.references = refs;
-  clusterState.plantsWithoutRefs = missing;
-  clusterState.step = 'refs-ready';
-  return { refs: refs.length, missing: missing.length };
-}
-
 // ── Prepare a card's thumbnail dataUrl (cached on clusterState) ────────────
+// Two sizes: a 500px version for the API submission, and a 350px version used
+// when this card becomes a cluster centroid sent in future calls.
 async function getCardThumbDataUrl(uid) {
   const cached = clusterState.thumbCache.get(uid);
   if (cached) return cached;
@@ -1354,11 +1342,31 @@ async function getCardThumbDataUrl(uid) {
   const img = await loadImageFromFile(card.file);
   const dataUrl = thumbnailToDataUrl(img, CARD_THUMB_PX, 0.78);
   clusterState.thumbCache.set(uid, dataUrl);
+  // Also cache a smaller centroid version while we have the image decoded
+  if (!clusterState.centroidCache.has(uid)) {
+    clusterState.centroidCache.set(uid, thumbnailToDataUrl(img, CENTROID_THUMB_PX, 0.7));
+  }
+  return dataUrl;
+}
+async function getCentroidDataUrl(uid) {
+  const cached = clusterState.centroidCache.get(uid);
+  if (cached) return cached;
+  const card = cards.find(c => c.uid === uid);
+  if (!card) return null;
+  const img = await loadImageFromFile(card.file);
+  const dataUrl = thumbnailToDataUrl(img, CENTROID_THUMB_PX, 0.7);
+  clusterState.centroidCache.set(uid, dataUrl);
   return dataUrl;
 }
 
-// ── Step 3/4: run match API in batches ──────────────────────────────────────
-async function runMatchBatches(repUids, onProgress) {
+// ── Step 2/3: run cluster API in batches ────────────────────────────────────
+//
+// Builds clusters incrementally. The first call has zero existing clusters.
+// Each subsequent call sends the running cluster list (one centroid photo per
+// cluster) so AI can decide whether each new card joins an existing cluster
+// or starts a new one. Centroids are sent in stable id order so Anthropic's
+// prompt cache hits the growing prefix.
+async function runClusterBatches(repUids, onProgress) {
   let totalUsage = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 };
   let batchesDone = 0;
   const batches = [];
@@ -1378,31 +1386,38 @@ async function runMatchBatches(repUids, onProgress) {
       onProgress?.(batchesDone, batches.length, totalUsage);
       continue;
     }
-    // Call the API
-    const resp = await fetch('/api/match-photos', {
+
+    // Build the existing-clusters payload (stable-ordered by id)
+    const existingClusters = [];
+    const sortedClusters = [...clusterState.clusters.values()].sort((a, b) => a.id - b.id);
+    for (const c of sortedClusters) {
+      const centroidUid = c.repUids[0];
+      const centroidData = await getCentroidDataUrl(centroidUid);
+      if (!centroidData) continue;
+      existingClusters.push({ id: c.id, label: c.label || '', centroid: centroidData });
+    }
+
+    const body = { cards: cardsPayload, existingClusters };
+    const resp = await fetch('/api/cluster-photos', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-plant-key': plantKey || '',
-      },
-      body: JSON.stringify({ cards: cardsPayload, references: clusterState.references })
+      headers: { 'Content-Type': 'application/json', 'x-plant-key': plantKey || '' },
+      body: JSON.stringify(body)
     });
     if (!resp.ok) {
       let msg;
       try { msg = (await resp.json()).error || resp.statusText; }
       catch { msg = resp.statusText; }
-      // 401 → passphrase prompt + retry once
       if (resp.status === 401) {
-        const ok = await promptPassphrase('Passphrase needed to call the matching API.');
+        const ok = await promptPassphrase('Passphrase needed to call the clustering API.');
         if (ok) {
-          const retry = await fetch('/api/match-photos', {
+          const retry = await fetch('/api/cluster-photos', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'x-plant-key': plantKey || '' },
-            body: JSON.stringify({ cards: cardsPayload, references: clusterState.references })
+            body: JSON.stringify(body)
           });
           if (retry.ok) {
             const r = await retry.json();
-            for (const m of (r.matches || [])) clusterState.matches.set(m.uid, m);
+            ingestClusterAssignments(r.assignments || []);
             mergeUsage(totalUsage, r.usage);
             batchesDone++;
             onProgress?.(batchesDone, batches.length, totalUsage);
@@ -1413,12 +1428,33 @@ async function runMatchBatches(repUids, onProgress) {
       throw new Error('API error (' + resp.status + '): ' + msg);
     }
     const r = await resp.json();
-    for (const m of (r.matches || [])) clusterState.matches.set(m.uid, m);
+    ingestClusterAssignments(r.assignments || []);
     mergeUsage(totalUsage, r.usage);
     batchesDone++;
     onProgress?.(batchesDone, batches.length, totalUsage);
   }
   return totalUsage;
+}
+
+// Apply API-returned assignments to clusterState
+function ingestClusterAssignments(assignments) {
+  for (const a of assignments) {
+    let cid = a.clusterId;
+    if (cid == null || !clusterState.clusters.has(cid)) {
+      // Start a new cluster (even if AI claimed an unknown id, treat as new)
+      cid = clusterState.nextClusterId++;
+      clusterState.clusters.set(cid, {
+        id: cid,
+        label: a.newLabel || '',
+        repUids: [],
+        plantId: '',
+      });
+    }
+    const cluster = clusterState.clusters.get(cid);
+    if (!cluster.repUids.includes(a.uid)) cluster.repUids.push(a.uid);
+    clusterState.cardCluster.set(a.uid, cid);
+    clusterState.cardNotes.set(a.uid, { confidence: a.confidence, note: a.note });
+  }
 }
 function mergeUsage(tgt, src) {
   if (!src) return;
@@ -1437,34 +1473,45 @@ function estimateCostUSD(usage) {
   return inUSD + outUSD + wrUSD + rdUSD;
 }
 
-// ── Apply matched results to actual cards ───────────────────────────────────
-// Only applies matches the user accepted during review (i.e. rep uid is NOT
-// in clusterState.rejected). Near-duplicate group members inherit their
-// representative's accept/reject decision.
-function applyMatchesToCards() {
-  let applied = 0, rejected = 0, noMatch = 0;
-  for (const group of clusterState.groups) {
-    const repUid = group[0];
-    const m = clusterState.matches.get(repUid);
-    if (!m || !m.plantId || m.confidence === 'none') { noMatch += group.length; continue; }
-    if (clusterState.rejected.has(repUid))           { rejected += group.length; continue; }
-    for (const uid of group) {
-      const card = cards.find(c => c.uid === uid);
-      if (!card || card.status !== 'unassigned') continue;
-      card.plantId = m.plantId;
-      card.status  = 'ready';
-      card.errorMsg = '';
-      card.force   = false;
-      markDirty(card);
-      applied++;
+// ── Apply cluster labels to actual cards ────────────────────────────────────
+// Only clusters with a plantId assigned (and not rejected) commit. Cards in
+// unlabeled or rejected clusters stay unassigned. Near-duplicate group
+// members inherit their representative's cluster.
+function applyClusterLabels() {
+  let applied = 0, unlabeled = 0, rejected = 0;
+  // Build rep -> group lookup
+  const groupByRep = new Map();
+  for (const g of clusterState.groups) groupByRep.set(g[0], g);
+  for (const cluster of clusterState.clusters.values()) {
+    const inactive = !cluster.plantId || clusterState.rejected.has(cluster.id);
+    let clusterCardCount = 0;
+    for (const repUid of cluster.repUids) {
+      const group = groupByRep.get(repUid) || [repUid];
+      clusterCardCount += group.length;
+    }
+    if (clusterState.rejected.has(cluster.id))     { rejected  += clusterCardCount; continue; }
+    if (!cluster.plantId)                          { unlabeled += clusterCardCount; continue; }
+    for (const repUid of cluster.repUids) {
+      if (clusterState.excludedCards.has(repUid)) continue;   // user removed this card from cluster
+      const group = groupByRep.get(repUid) || [repUid];
+      for (const uid of group) {
+        const card = cards.find(c => c.uid === uid);
+        if (!card || card.status !== 'unassigned') continue;
+        card.plantId = cluster.plantId;
+        card.status  = 'ready';
+        card.errorMsg = '';
+        card.force   = false;
+        markDirty(card);
+        applied++;
+      }
     }
   }
   renderGrid();
   const bits = ['Assigned ' + applied + ' photo' + (applied === 1 ? '' : 's')];
-  if (rejected) bits.push(rejected + ' rejected');
-  if (noMatch)  bits.push(noMatch + ' had no match');
+  if (unlabeled) bits.push(unlabeled + ' in unlabeled clusters');
+  if (rejected)  bits.push(rejected + ' rejected');
   showToast(bits.join(' · '));
-  return { applied, rejected, noMatch };
+  return { applied, unlabeled, rejected };
 }
 
 // ── Cluster panel rendering ─────────────────────────────────────────────────
@@ -1488,71 +1535,49 @@ function renderClusterPanel() {
       : '<div class="result">Reduced <strong>' + s.dedupResult.total + '</strong> photos → <strong>' + s.dedupResult.unique + '</strong> unique (collapsed ' + s.dedupResult.collapsed + ' near-duplicates).</div>'
   }));
 
-  // Step 2 — References
-  const refsLocked = s.step === 'idle';
-  if (s.step === 'dedup-done') {
-    html.push(stepHtml({
-      key: 'refs',
-      title: '2. Load reference photos (free)',
-      locked: refsLocked,
-      done: false,
-      active: true,
-      body: '<div class="muted">Fetch one current photo per plant and thumbnail it for the API. Runs locally — only your Supabase, no Claude calls.</div>' +
-            '<div class="row"><button class="primary" data-step="refs">Load references</button></div>'
-    }));
-  } else if (s.step === 'refs-ready' || s.step === 'tested' || s.step === 'matched') {
-    html.push(stepHtml({
-      key: 'refs',
-      title: '2. Load reference photos (free)',
-      locked: false,
-      done: true,
-      body: '<div class="result"><strong>' + s.references.length + '</strong> reference photos loaded' + (s.plantsWithoutRefs.length ? ' · <span class="muted">' + s.plantsWithoutRefs.length + ' plants have no photo yet — those won\'t appear in matches</span>' : '') + '</div>' +
-            refsGridHtml(s.references)
-    }));
-  }
-
-  // Step 3 — Test
-  if (s.step === 'refs-ready' || s.step === 'tested' || s.step === 'matched') {
-    const done = s.step === 'tested' || s.step === 'matched';
+  // Step 2 — Test cluster
+  if (s.step === 'dedup-done' || s.step === 'tested' || s.step === 'clustered') {
+    const done = s.step === 'tested' || s.step === 'clustered';
     const testedCost = s.testUsage ? estimateCostUSD(s.testUsage) : null;
     html.push(stepHtml({
       key: 'test',
-      title: '3. Test on ' + MATCH_TEST_SIZE + ' random photos (small spend)',
+      title: '2. Test cluster on ' + MATCH_TEST_SIZE + ' random photos (small spend)',
       locked: false,
       done: done,
       active: !done,
       body: done
-        ? '<div class="result">Test complete. Spent <strong>$' + testedCost.toFixed(3) + '</strong> on <strong>' + (s.testMatches?.length || 0) + '</strong> match' + (s.testMatches?.length === 1 ? '' : 'es') + '. Review the sample below.</div>' +
-          sampleHtml(s.testMatches || [])
-        : '<div class="muted">Pull ' + MATCH_TEST_SIZE + ' random representatives and run them through Claude vision. Refs get cached so subsequent batches are cheaper.</div>' +
+        ? '<div class="result">Test complete. Spent <strong>$' + testedCost.toFixed(3) + '</strong>. Formed ' + s.testClusterCount + ' cluster' + (s.testClusterCount === 1 ? '' : 's') + ' from ' + (s.testRepCount || 0) + ' photo' + (s.testRepCount === 1 ? '' : 's') + '. Preview below.</div>' +
+          renderClustersPreviewHtml(true)
+        : '<div class="muted">Run ' + MATCH_TEST_SIZE + ' random photos through clustering so you can eyeball how AI groups them before committing to the full run.</div>' +
           '<div class="row"><button class="secondary" data-step="test">Run test (~$0.30)</button><button class="ghost" data-step="skip-test">Skip test</button></div>'
     }));
   }
 
-  // Step 4 — Full match
-  if (s.step === 'tested' || s.step === 'matched' || (s.step === 'refs-ready' && s.skipTest)) {
-    const done = s.step === 'matched';
-    const remaining = s.groups.length - (s.testMatches?.length || 0);
+  // Step 3 — Cluster all
+  if (s.step === 'tested' || s.step === 'clustered') {
+    const done = s.step === 'clustered';
+    const alreadyClustered = new Set(clusterState.cardCluster.keys()).size;
+    const remaining = s.groups.length - alreadyClustered;
     const fullCost = s.fullUsage ? estimateCostUSD(s.fullUsage) : null;
-    const estimatePer = s.testUsage ? estimateCostUSD(s.testUsage) / (s.testMatches?.length || 1) : 0.04;
+    const estimatePer = s.testUsage ? estimateCostUSD(s.testUsage) / Math.max(1, s.testRepCount || 1) : 0.04;
     const estimateFull = (estimatePer * remaining).toFixed(2);
     html.push(stepHtml({
       key: 'full',
-      title: '4. Match all remaining (' + remaining + ' photos)',
+      title: '3. Cluster all remaining (' + remaining + ' photos)',
       locked: false,
       done: done,
       active: !done,
       body: done
-        ? '<div class="result">Match complete. Spent <strong>$' + fullCost.toFixed(3) + '</strong>. ' + countMatchHtml(s.matches) + '</div>' +
-          '<div class="body" style="margin-top:8px"><strong>5. Review buckets</strong> — click a thumbnail to reject it, or use Accept/Reject all per bucket. Only accepted matches get applied to your cards.</div>'
-        : '<div class="muted">Run the remaining ' + remaining + ' representatives through the API. Estimated cost: <strong>~$' + estimateFull + '</strong> (based on test).</div>' +
-          '<div class="row"><button class="primary" data-step="full">Match all (~$' + estimateFull + ')</button></div>'
+        ? '<div class="result">Clustering complete. Spent <strong>$' + fullCost.toFixed(3) + '</strong>. ' + s.clusters.size + ' cluster' + (s.clusters.size === 1 ? '' : 's') + ' from ' + s.groups.length + ' unique photo' + (s.groups.length === 1 ? '' : 's') + '.</div>' +
+          '<div class="body" style="margin-top:8px"><strong>4. Label each cluster</strong> — pick the plant for each group below. Click a card to remove it from its cluster, or use the bucket controls.</div>'
+        : '<div class="muted">Cluster the remaining ' + remaining + ' photos. Estimated cost: <strong>~$' + estimateFull + '</strong> (extrapolated from test).</div>' +
+          '<div class="row"><button class="primary" data-step="full">Cluster all (~$' + estimateFull + ')</button></div>'
     }));
   }
 
-  // Bucket review (after matching is complete)
-  if (s.step === 'matched') {
-    html.push(renderBucketsHtml());
+  // Cluster labeling UI (after clustering completes)
+  if (s.step === 'clustered') {
+    html.push(renderClustersForLabelingHtml());
   }
 
   // Progress / errors
@@ -1571,8 +1596,9 @@ function renderClusterPanel() {
   steps.querySelectorAll('button[data-step]').forEach(btn => {
     btn.addEventListener('click', () => handleStepClick(btn.dataset.step));
   });
-  // Bucket review handlers (only present when step==='matched')
-  if (clusterState.step === 'matched') wireUpBucketHandlers();
+  // Bucket review handlers (only present after full clustering, in the
+  // labeling phase — test preview is read-only)
+  if (clusterState.step === 'clustered') wireUpBucketHandlers();
 }
 
 function stepHtml({ key, title, locked, done, active, body }) {
@@ -1583,147 +1609,103 @@ function stepHtml({ key, title, locked, done, active, body }) {
            '<div class="body">' + body + '</div>' +
          '</div>';
 }
-function refsGridHtml(refs) {
-  if (!refs.length) return '';
-  const showMax = 60;
-  const slice = refs.slice(0, showMax);
-  const more = refs.length > showMax ? '<div class="ref-cell" style="display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:var(--muted)">+' + (refs.length - showMax) + '</div>' : '';
-  return '<div class="ref-grid">' +
-    slice.map(r => '<div class="ref-cell" title="' + esc(r.name) + (r.sub ? ' (' + esc(r.sub) + ')' : '') + '"><img src="' + r.dataUrl + '" alt=""><div class="lbl">' + esc(r.name) + '</div></div>').join('') +
-    more +
-    '</div>';
+// ── Cluster preview + labeling UI ──────────────────────────────────────────
+// Each AI-formed cluster is rendered as a bucket. The user labels each
+// cluster with a plant from their existing list; only labeled clusters
+// commit when Apply is pressed.
+//
+// Per-card click in a bucket = "this card doesn't belong here" → marks the
+// card excluded; it stays unassigned regardless of the cluster's label.
+
+function groupSizeForRep(repUid) {
+  for (const g of clusterState.groups) if (g[0] === repUid) return g.length;
+  return 1;
 }
-function sampleHtml(matches) {
-  if (!matches.length) return '<div class="muted">No matches in test.</div>';
-  return '<div class="sample-grid">' + matches.map(m => {
-    const card = cards.find(c => c.uid === m.uid);
-    if (!card) return '';
-    const ref  = clusterState.references.find(r => r.id === m.plantId);
-    const refImg = ref ? '<img src="' + ref.dataUrl + '" alt="">' : '<div style="width:60px;height:60px;background:var(--soft);border-radius:6px;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:9px">no match</div>';
-    const refLabel = ref ? ref.name + (ref.sub ? ' (' + ref.sub + ')' : '') : '— no match —';
-    return '<div class="sample-row">' +
-             '<div class="pair">' +
-               '<img src="' + card.previewUrl + '" alt="">' +
-               '<span class="arrow">→</span>' +
-               refImg +
-             '</div>' +
-             '<div class="meta">' +
-               '<div class="plant">' + esc(refLabel) + ' <span class="conf-pill ' + m.confidence + '">' + m.confidence + '</span></div>' +
-               '<div class="note">' + esc(m.note || '') + '</div>' +
-             '</div>' +
-           '</div>';
-  }).join('') + '</div>';
+function clusterTotalSize(cluster) {
+  let s = 0;
+  for (const uid of cluster.repUids) s += groupSizeForRep(uid);
+  return s;
 }
-function countMatchHtml(matchesMap) {
-  const counts = { high: 0, medium: 0, low: 0, none: 0 };
-  for (const m of matchesMap.values()) counts[m.confidence] = (counts[m.confidence] || 0) + 1;
-  return '<span class="conf-pill high">high ' + counts.high + '</span> ' +
-         '<span class="conf-pill medium">medium ' + counts.medium + '</span> ' +
-         '<span class="conf-pill low">low ' + counts.low + '</span> ' +
-         '<span class="conf-pill none">none ' + counts.none + '</span>';
+function getClustersSorted() {
+  const arr = [...clusterState.clusters.values()];
+  arr.sort((a, b) => clusterTotalSize(b) - clusterTotalSize(a));
+  return arr;
 }
 
-// ── Bucket review ──────────────────────────────────────────────────────────
-// Group matched representatives by their predicted plantId. Each rep card
-// stands for its near-duplicate group, so accepting/rejecting a rep applies
-// to every card in its group.
-function groupMatchesIntoBuckets() {
-  const s = clusterState;
-  const buckets = new Map(); // plantId -> [{repUid, m, groupSize}]
-  let noMatch = []; // {repUid, groupSize}
-  // Build a uid -> groupSize lookup
-  const groupSize = new Map();
-  for (const g of s.groups) groupSize.set(g[0], g.length);
-  for (const [repUid, m] of s.matches.entries()) {
-    const size = groupSize.get(repUid) || 1;
-    if (!m.plantId || m.confidence === 'none') {
-      noMatch.push({ repUid, groupSize: size, m });
-      continue;
-    }
-    if (!buckets.has(m.plantId)) buckets.set(m.plantId, []);
-    buckets.get(m.plantId).push({ repUid, m, groupSize: size });
-  }
-  // Sort buckets: bigger buckets first (sum of groupSize)
-  const sorted = [...buckets.entries()]
-    .map(([plantId, items]) => ({
-      plantId,
-      items,
-      total: items.reduce((s, it) => s + it.groupSize, 0),
-      ref: s.references.find(r => r.id === plantId)
-    }))
-    .sort((a, b) => b.total - a.total);
-  return { buckets: sorted, noMatch };
-}
-
-function bucketAcceptedTotals(bucket) {
-  let accepted = 0, total = 0;
-  for (const it of bucket.items) {
-    total += it.groupSize;
-    if (!clusterState.rejected.has(it.repUid)) accepted += it.groupSize;
-  }
-  return { accepted, total };
-}
-
-function renderBucketsHtml() {
-  const { buckets, noMatch } = groupMatchesIntoBuckets();
-  const parts = ['<div class="bucket-list" id="bucket-list">'];
-  for (const b of buckets) {
-    parts.push(bucketHtml(b));
-  }
-  if (noMatch.length) {
-    const noMatchTotal = noMatch.reduce((s, it) => s + it.groupSize, 0);
+function renderClustersPreviewHtml(/* testOnly */) {
+  // Lightweight read-only preview for the test step
+  const clusters = getClustersSorted();
+  if (clusters.length === 0) return '<div class="result">No clusters formed.</div>';
+  const parts = ['<div class="bucket-list" style="margin-top:8px">'];
+  for (const c of clusters) {
+    const size = clusterTotalSize(c);
     parts.push(
-      '<div class="bucket no-match">' +
+      '<div class="bucket">' +
         '<div class="bucket-head">' +
-          '<div class="bucket-ref" style="display:flex;align-items:center;justify-content:center;font-size:18px;color:var(--muted)">?</div>' +
           '<div class="bucket-meta">' +
-            '<div class="bucket-name">No confident match</div>' +
-            '<div class="bucket-counts">' + noMatchTotal + ' photo' + (noMatchTotal === 1 ? '' : 's') + ' · will stay unassigned</div>' +
+            '<div class="bucket-name">' + esc(c.label || 'Cluster ' + c.id) + '</div>' +
+            '<div class="bucket-counts">' + size + ' photo' + (size === 1 ? '' : 's') + ' · ' + c.repUids.length + ' unique</div>' +
           '</div>' +
         '</div>' +
         '<div class="bucket-body">' +
-          noMatch.map(it => bucketCellHtml(it.repUid, it.groupSize, it.m)).join('') +
+          c.repUids.map(uid => clusterCellHtml(uid, groupSizeForRep(uid), c.id, true)).join('') +
         '</div>' +
       '</div>'
     );
   }
   parts.push('</div>');
+  return parts.join('');
+}
+
+function renderClustersForLabelingHtml() {
+  const clusters = getClustersSorted();
+  const parts = ['<div class="bucket-list" id="bucket-list">'];
+  for (const c of clusters) parts.push(clusterBucketHtml(c));
+  parts.push('</div>');
   parts.push(reviewSummaryHtml());
   return parts.join('');
 }
 
-function bucketHtml(b) {
-  const { accepted, total } = bucketAcceptedTotals(b);
-  const refSrc = b.ref ? b.ref.dataUrl : '';
-  const refLabel = b.ref ? (b.ref.name + (b.ref.sub ? ' (' + b.ref.sub + ')' : '')) : b.plantId;
+function clusterBucketHtml(cluster) {
+  const totalSize    = clusterTotalSize(cluster);
+  const excludedSize = cluster.repUids
+    .filter(uid => clusterState.excludedCards?.has?.(uid))
+    .reduce((s, uid) => s + groupSizeForRep(uid), 0);
+  const willCommit = clusterState.rejected.has(cluster.id) ? 0 : (totalSize - excludedSize);
+  const isRejected = clusterState.rejected.has(cluster.id);
   return (
-    '<div class="bucket" data-plant-id="' + esc(b.plantId) + '">' +
+    '<div class="bucket' + (isRejected ? ' rejected-cluster' : '') + '" data-cluster-id="' + cluster.id + '">' +
       '<div class="bucket-head">' +
-        (refSrc ? '<img class="bucket-ref" src="' + refSrc + '" alt="">' : '<div class="bucket-ref"></div>') +
         '<div class="bucket-meta">' +
-          '<div class="bucket-name">' + esc(refLabel) + '</div>' +
-          '<div class="bucket-counts"><span class="b-accepted">' + accepted + '</span> of <span class="b-total">' + total + '</span> accepted · ' + b.items.length + ' unique</div>' +
+          '<div class="bucket-name">' + esc(cluster.label || 'Cluster ' + cluster.id) + '</div>' +
+          '<div class="bucket-counts">' +
+            '<span class="b-commit">' + willCommit + '</span> of <span class="b-total">' + totalSize + '</span> will commit · ' + cluster.repUids.length + ' unique' +
+            (cluster.plantId ? ' · <span style="color:var(--good-fg);font-weight:700">labeled</span>' : '') +
+          '</div>' +
         '</div>' +
         '<div class="bucket-actions">' +
-          '<button class="accept-all" data-bucket-action="accept" data-plant-id="' + esc(b.plantId) + '">✓ all</button>' +
-          '<button class="reject-all" data-bucket-action="reject" data-plant-id="' + esc(b.plantId) + '">✕ all</button>' +
+          '<button class="reject-all" data-cluster-action="reject" data-cluster-id="' + cluster.id + '">' + (isRejected ? 'Unreject' : '✕ skip') + '</button>' +
         '</div>' +
       '</div>' +
+      '<div class="cluster-cb-row">' +
+        '<div class="cluster-cb-slot" data-cluster-id="' + cluster.id + '"></div>' +
+      '</div>' +
       '<div class="bucket-body">' +
-        b.items.map(it => bucketCellHtml(it.repUid, it.groupSize, it.m)).join('') +
+        cluster.repUids.map(uid => clusterCellHtml(uid, groupSizeForRep(uid), cluster.id, false)).join('') +
       '</div>' +
     '</div>'
   );
 }
 
-function bucketCellHtml(repUid, groupSize, m) {
+function clusterCellHtml(repUid, groupSize, clusterId, readOnly) {
   const card = cards.find(c => c.uid === repUid);
   if (!card) return '';
-  const conf = m?.confidence || 'none';
-  const rejected = clusterState.rejected.has(repUid);
-  const noteAttr = m?.note ? ' title="' + esc(m.note) + '"' : '';
+  const note = clusterState.cardNotes?.get?.(repUid);
+  const conf = note?.confidence || 'medium';
+  const excluded = clusterState.excludedCards?.has?.(repUid);
+  const noteAttr = note?.note ? ' title="' + esc(note.note) + '"' : '';
   return (
-    '<div class="bucket-cell ' + conf + (rejected ? ' rejected' : '') + '" data-rep-uid="' + repUid + '"' + noteAttr + '>' +
+    '<div class="bucket-cell ' + conf + (excluded ? ' rejected' : '') + (readOnly ? ' read-only' : '') + '" data-rep-uid="' + repUid + '" data-cluster-id="' + clusterId + '"' + noteAttr + '>' +
       '<img src="' + card.previewUrl + '" alt="">' +
       (groupSize > 1 ? '<span class="grp-badge">×' + groupSize + '</span>' : '') +
       '<span class="conf-dot"></span>' +
@@ -1732,100 +1714,177 @@ function bucketCellHtml(repUid, groupSize, m) {
 }
 
 function reviewSummaryHtml() {
-  const totals = computeReviewTotals();
+  const t = computeReviewTotals();
   return (
     '<div class="review-summary" id="review-summary">' +
       '<div class="counts">' +
-        '<span id="rs-accepted">' + totals.accepted + '</span> accepted · ' +
-        '<span id="rs-rejected">' + totals.rejected + '</span> rejected · ' +
-        '<span id="rs-nomatch">' + totals.noMatch + '</span> no match' +
+        '<span id="rs-labeled">' + t.labeled + '</span> labeled · ' +
+        '<span id="rs-unlabeled">' + t.unlabeled + '</span> unlabeled · ' +
+        '<span id="rs-excluded">' + t.excluded + '</span> excluded · ' +
+        '<span id="rs-skipped">' + t.skipped + '</span> skipped' +
       '</div>' +
       '<div class="actions">' +
         '<button class="ghost" data-step="discard">Discard all</button>' +
-        '<button class="primary" data-step="apply">Apply <span id="rs-apply-count">' + totals.accepted + '</span></button>' +
+        '<button class="primary" data-step="apply">Apply <span id="rs-apply-count">' + t.willCommit + '</span></button>' +
       '</div>' +
     '</div>'
   );
 }
 
 function computeReviewTotals() {
-  const { buckets, noMatch } = groupMatchesIntoBuckets();
-  let accepted = 0, rejected = 0;
-  for (const b of buckets) {
-    for (const it of b.items) {
-      if (clusterState.rejected.has(it.repUid)) rejected += it.groupSize;
-      else accepted += it.groupSize;
-    }
+  let labeled = 0, unlabeled = 0, excluded = 0, skipped = 0;
+  for (const cluster of clusterState.clusters.values()) {
+    const totalSize = clusterTotalSize(cluster);
+    if (clusterState.rejected.has(cluster.id)) { skipped += totalSize; continue; }
+    const exSize = cluster.repUids
+      .filter(uid => clusterState.excludedCards?.has?.(uid))
+      .reduce((s, uid) => s + groupSizeForRep(uid), 0);
+    excluded += exSize;
+    if (cluster.plantId) labeled   += totalSize - exSize;
+    else                 unlabeled += totalSize - exSize;
   }
-  const noMatchTotal = noMatch.reduce((s, it) => s + it.groupSize, 0);
-  return { accepted, rejected, noMatch: noMatchTotal };
+  return { labeled, unlabeled, excluded, skipped, willCommit: labeled };
 }
 
-// Partial DOM updates so toggling doesn't scroll the panel back to the top
-function refreshBucketHead(plantId) {
-  const b = groupMatchesIntoBuckets().buckets.find(x => x.plantId === plantId);
-  if (!b) return;
-  const { accepted, total } = bucketAcceptedTotals(b);
-  const el = document.querySelector('.bucket[data-plant-id="' + CSS.escape(plantId) + '"]');
+// Partial updates so toggling doesn't scroll the panel back to top
+function refreshClusterHead(clusterId) {
+  const cluster = clusterState.clusters.get(clusterId);
+  if (!cluster) return;
+  const totalSize = clusterTotalSize(cluster);
+  const exSize = cluster.repUids
+    .filter(uid => clusterState.excludedCards?.has?.(uid))
+    .reduce((s, uid) => s + groupSizeForRep(uid), 0);
+  const willCommit = clusterState.rejected.has(cluster.id) ? 0 : (totalSize - exSize);
+  const el = document.querySelector('.bucket[data-cluster-id="' + clusterId + '"]');
   if (!el) return;
-  const acceptedEl = el.querySelector('.b-accepted');
-  const totalEl    = el.querySelector('.b-total');
-  if (acceptedEl) acceptedEl.textContent = accepted;
-  if (totalEl)    totalEl.textContent    = total;
+  const commitEl = el.querySelector('.b-commit');
+  const totalEl  = el.querySelector('.b-total');
+  if (commitEl) commitEl.textContent = willCommit;
+  if (totalEl)  totalEl.textContent  = totalSize;
+  el.classList.toggle('rejected-cluster', clusterState.rejected.has(cluster.id));
+  const rejectBtn = el.querySelector('button[data-cluster-action="reject"]');
+  if (rejectBtn) rejectBtn.textContent = clusterState.rejected.has(cluster.id) ? 'Unreject' : '✕ skip';
 }
 function refreshReviewSummary() {
   const t = computeReviewTotals();
-  const a = document.getElementById('rs-accepted');
-  const r = document.getElementById('rs-rejected');
-  const n = document.getElementById('rs-nomatch');
-  const ap = document.getElementById('rs-apply-count');
-  if (a)  a.textContent = t.accepted;
-  if (r)  r.textContent = t.rejected;
-  if (n)  n.textContent = t.noMatch;
-  if (ap) ap.textContent = t.accepted;
+  const ids = ['rs-labeled', 'rs-unlabeled', 'rs-excluded', 'rs-skipped', 'rs-apply-count'];
+  const vals = [t.labeled, t.unlabeled, t.excluded, t.skipped, t.willCommit];
+  ids.forEach((id, i) => { const el = document.getElementById(id); if (el) el.textContent = vals[i]; });
 }
 
-function toggleCell(repUid) {
-  if (clusterState.rejected.has(repUid)) clusterState.rejected.delete(repUid);
-  else                                    clusterState.rejected.add(repUid);
+function toggleExcludeCard(repUid) {
+  if (!clusterState.excludedCards) clusterState.excludedCards = new Set();
+  const set = clusterState.excludedCards;
+  if (set.has(repUid)) set.delete(repUid);
+  else                 set.add(repUid);
   const cell = document.querySelector('.bucket-cell[data-rep-uid="' + repUid + '"]');
   if (cell) cell.classList.toggle('rejected');
-  const m = clusterState.matches.get(repUid);
-  if (m?.plantId) refreshBucketHead(m.plantId);
+  const clusterId = parseInt(cell?.dataset.clusterId || '0', 10);
+  if (clusterId) refreshClusterHead(clusterId);
   refreshReviewSummary();
 }
 
-function bucketAcceptAll(plantId) {
-  const b = groupMatchesIntoBuckets().buckets.find(x => x.plantId === plantId);
-  if (!b) return;
-  for (const it of b.items) clusterState.rejected.delete(it.repUid);
-  document.querySelectorAll('.bucket[data-plant-id="' + CSS.escape(plantId) + '"] .bucket-cell').forEach(c => c.classList.remove('rejected'));
-  refreshBucketHead(plantId);
+function toggleRejectCluster(clusterId) {
+  if (clusterState.rejected.has(clusterId)) clusterState.rejected.delete(clusterId);
+  else                                       clusterState.rejected.add(clusterId);
+  refreshClusterHead(clusterId);
   refreshReviewSummary();
 }
-function bucketRejectAll(plantId) {
-  const b = groupMatchesIntoBuckets().buckets.find(x => x.plantId === plantId);
-  if (!b) return;
-  for (const it of b.items) clusterState.rejected.add(it.repUid);
-  document.querySelectorAll('.bucket[data-plant-id="' + CSS.escape(plantId) + '"] .bucket-cell').forEach(c => c.classList.add('rejected'));
-  refreshBucketHead(plantId);
-  refreshReviewSummary();
+
+// Inline plant-picker combobox for cluster labeling. Selecting writes to
+// cluster.plantId and partially refreshes the bucket head + summary.
+function buildClusterLabelCombobox(cluster) {
+  const wrap = document.createElement('div');
+  wrap.className = 'combobox' + (cluster.plantId ? ' has-pick' : '');
+  const picked = cluster.plantId ? PLANTS.find(p => p.id === cluster.plantId) : null;
+  wrap.innerHTML =
+    '<input type="text" placeholder="Pick plant for this cluster…" value="' + (picked ? esc(plantLabel(picked)) : '') + '">' +
+    (cluster.plantId ? '<button type="button" class="clear" title="Clear">×</button>' : '') +
+    '<div class="list"></div>';
+  const input = wrap.querySelector('input');
+  const list  = wrap.querySelector('.list');
+  let activeIdx = 0;
+  let filtered = [];
+
+  function refresh(showAll) {
+    const q = input.value.trim();
+    const queryStr = (picked && q === plantLabel(picked) && !showAll) ? '' : q;
+    filtered = PLANTS.filter(p => plantMatches(p, queryStr)).slice(0, 50);
+    if (filtered.length === 0) list.innerHTML = '<div class="empty">No matches</div>';
+    else list.innerHTML = filtered.map((p, i) =>
+      '<div class="opt' + (i === activeIdx ? ' active' : '') + '" data-id="' + esc(p.id) + '">' +
+        '<div class="opt-name">' + esc(plantLabel(p)) + '</div>' +
+        '<div class="opt-meta">' + esc(p.loc || '') + ' · ' + esc(p.id) + (p.type ? ' · ' + esc(p.type) : '') + '</div>' +
+      '</div>'
+    ).join('');
+  }
+  function open()  { wrap.classList.add('open'); refresh(false); }
+  function close() { wrap.classList.remove('open'); }
+
+  function pick(p) {
+    cluster.plantId = p.id;
+    wrap.classList.add('has-pick');
+    input.value = plantLabel(p);
+    if (!wrap.querySelector('.clear')) {
+      const x = document.createElement('button');
+      x.type = 'button'; x.className = 'clear'; x.title = 'Clear'; x.textContent = '×';
+      x.addEventListener('click', clearPick);
+      wrap.insertBefore(x, list);
+    }
+    close();
+    refreshClusterHead(cluster.id);
+    refreshReviewSummary();
+  }
+  function clearPick() {
+    cluster.plantId = '';
+    wrap.classList.remove('has-pick');
+    input.value = '';
+    const x = wrap.querySelector('.clear');
+    if (x) x.remove();
+    refreshClusterHead(cluster.id);
+    refreshReviewSummary();
+  }
+
+  input.addEventListener('focus', () => { activeIdx = 0; open(); });
+  input.addEventListener('input', () => { activeIdx = 0; open(); });
+  input.addEventListener('keydown', e => {
+    if (e.key === 'ArrowDown') { e.preventDefault(); if (!wrap.classList.contains('open')) open(); activeIdx = Math.min(activeIdx + 1, filtered.length - 1); refresh(false); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); activeIdx = Math.max(activeIdx - 1, 0); refresh(false); }
+    else if (e.key === 'Enter') { e.preventDefault(); if (filtered[activeIdx]) pick(filtered[activeIdx]); }
+    else if (e.key === 'Escape') { close(); input.blur(); }
+  });
+  list.addEventListener('mousedown', e => {
+    const opt = e.target.closest('.opt');
+    if (!opt) return;
+    e.preventDefault();
+    const p = PLANTS.find(x => x.id === opt.dataset.id);
+    if (p) pick(p);
+  });
+  document.addEventListener('mousedown', e => {
+    if (!wrap.contains(e.target)) close();
+  });
+  const existingClear = wrap.querySelector('.clear');
+  if (existingClear) existingClear.addEventListener('click', clearPick);
+  return wrap;
 }
 
 function wireUpBucketHandlers() {
-  // Cell toggles
-  document.querySelectorAll('.bucket-cell[data-rep-uid]').forEach(cell => {
-    cell.addEventListener('click', () => toggleCell(parseInt(cell.dataset.repUid, 10)));
+  // Cell toggles — click to exclude this card from its cluster
+  document.querySelectorAll('.bucket-cell[data-rep-uid]:not(.read-only)').forEach(cell => {
+    cell.addEventListener('click', () => toggleExcludeCard(parseInt(cell.dataset.repUid, 10)));
   });
-  // Bucket-level accept/reject
-  document.querySelectorAll('button[data-bucket-action]').forEach(btn => {
+  // Cluster-level reject toggle
+  document.querySelectorAll('button[data-cluster-action="reject"]').forEach(btn => {
     btn.addEventListener('click', e => {
       e.stopPropagation();
-      const action = btn.dataset.bucketAction;
-      const plantId = btn.dataset.plantId;
-      if (action === 'accept') bucketAcceptAll(plantId);
-      else if (action === 'reject') bucketRejectAll(plantId);
+      toggleRejectCluster(parseInt(btn.dataset.clusterId, 10));
     });
+  });
+  // Mount a combobox into each cluster
+  document.querySelectorAll('.cluster-cb-slot[data-cluster-id]').forEach(slot => {
+    const id = parseInt(slot.dataset.clusterId, 10);
+    const cluster = clusterState.clusters.get(id);
+    if (cluster) slot.replaceWith(buildClusterLabelCombobox(cluster));
   });
 }
 
@@ -1838,41 +1897,37 @@ async function handleStepClick(step) {
       s.dedupResult = await runDedup((d, t) => { s.progress = { label: 'Hashing photos…', done: d, total: t }; renderClusterPanel(); });
       s.progress = null;
       renderClusterPanel();
-    } else if (step === 'refs') {
-      s.progress = { label: 'Loading reference photos…', done: 0, total: PLANTS.length };
-      renderClusterPanel();
-      await loadReferencesForCluster((d, t) => { s.progress = { label: 'Loading reference photos…', done: d, total: t }; renderClusterPanel(); });
-      s.progress = null;
-      renderClusterPanel();
     } else if (step === 'test') {
       // Sample MATCH_TEST_SIZE random representatives
       const reps = s.groups.map(g => g[0]);
       const sample = shuffle(reps.slice()).slice(0, Math.min(MATCH_TEST_SIZE, reps.length));
-      s.progress = { label: 'Test matching…', done: 0, total: 1 };
+      s.progress = { label: 'Test clustering…', done: 0, total: 1 };
       renderClusterPanel();
-      const usage = await runMatchBatches(sample, (d, t, u) => { s.progress = { label: 'Test matching…', done: d, total: t, usage: u }; renderClusterPanel(); });
+      const usage = await runClusterBatches(sample, (d, t, u) => { s.progress = { label: 'Test clustering…', done: d, total: t, usage: u }; renderClusterPanel(); });
       s.testUsage = usage;
-      s.testMatches = sample.map(uid => clusterState.matches.get(uid)).filter(Boolean);
+      s.testRepCount = sample.length;
+      s.testClusterCount = clusterState.clusters.size;
       s.step = 'tested';
       s.progress = null;
       renderClusterPanel();
     } else if (step === 'skip-test') {
       s.skipTest = true;
-      s.testMatches = [];
+      s.testRepCount = 0;
+      s.testClusterCount = 0;
       s.step = 'tested';
       renderClusterPanel();
     } else if (step === 'full') {
-      // Run remaining representatives (those not already in matches)
-      const remaining = s.groups.map(g => g[0]).filter(uid => !s.matches.has(uid));
-      s.progress = { label: 'Matching all photos…', done: 0, total: 1 };
+      // Run only reps that haven't been clustered yet (test reps already are)
+      const remaining = s.groups.map(g => g[0]).filter(uid => !s.cardCluster.has(uid));
+      s.progress = { label: 'Clustering all photos…', done: 0, total: 1 };
       renderClusterPanel();
-      const usage = await runMatchBatches(remaining, (d, t, u) => { s.progress = { label: 'Matching all photos…', done: d, total: t, usage: u }; renderClusterPanel(); });
+      const usage = await runClusterBatches(remaining, (d, t, u) => { s.progress = { label: 'Clustering all photos…', done: d, total: t, usage: u }; renderClusterPanel(); });
       s.fullUsage = usage;
-      s.step = 'matched';
+      s.step = 'clustered';
       s.progress = null;
       renderClusterPanel();
     } else if (step === 'apply') {
-      applyMatchesToCards();
+      applyClusterLabels();
       closeClusterPanel();
     } else if (step === 'discard') {
       closeClusterPanel();
