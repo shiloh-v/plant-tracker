@@ -108,6 +108,51 @@
 
   #toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: rgba(30,26,18,.92); color: white; padding: 10px 18px; border-radius: 22px; font-size: 13px; font-weight: 600; z-index: 400; box-shadow: 0 4px 14px rgba(0,0,0,.35); }
 
+  /* Auto-cluster panel */
+  #cluster-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 200; display: flex; align-items: center; justify-content: center; padding: 16px; }
+  #cluster-overlay.hidden { display: none; }
+  #cluster-panel { background: var(--cream); border-radius: 18px; max-width: 720px; width: 100%; max-height: 92vh; overflow-y: auto; padding: 22px 22px 20px; font-family: inherit; box-shadow: 0 14px 50px rgba(0,0,0,.4); }
+  #cluster-panel h2 { font-family: 'Fraunces', serif; font-size: 22px; font-weight: 700; margin-bottom: 4px; }
+  #cluster-panel .sub { font-size: 13px; color: var(--muted); margin-bottom: 18px; }
+  .cluster-step { border: 1px solid var(--border); border-radius: 12px; padding: 14px; margin-bottom: 12px; background: var(--cream); }
+  .cluster-step.active { border-color: var(--green); box-shadow: 0 0 0 1px var(--green); }
+  .cluster-step.done { background: #f6fbf4; border-color: var(--good-fg); }
+  .cluster-step .title { font-weight: 700; font-size: 14px; margin-bottom: 4px; display: flex; align-items: center; gap: 6px; }
+  .cluster-step .body { font-size: 13px; color: var(--text); line-height: 1.4; }
+  .cluster-step .body .muted { color: var(--muted); }
+  .cluster-step .result { font-size: 13px; margin-top: 6px; padding: 8px 10px; background: var(--soft); border-radius: 8px; line-height: 1.4; }
+  .cluster-step .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+  .cluster-step .row button { padding: 8px 14px; border-radius: 10px; font-size: 13px; font-weight: 700; font-family: inherit; cursor: pointer; }
+  .cluster-step .row .primary { background: var(--green); color: white; border: none; }
+  .cluster-step .row .secondary { background: var(--cream); color: var(--green); border: 1.5px solid var(--green); }
+  .cluster-step .row .ghost { background: var(--soft); color: var(--text); border: 1px solid var(--border); }
+  .cluster-step .row button:disabled { opacity: .4; cursor: not-allowed; }
+  .cluster-step.locked { opacity: .55; pointer-events: none; }
+  .progress-bar { height: 8px; background: var(--soft); border-radius: 6px; overflow: hidden; margin-top: 8px; }
+  .progress-bar > div { height: 100%; background: var(--green); transition: width .2s; }
+  .ref-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: 6px; margin-top: 10px; max-height: 220px; overflow-y: auto; padding: 6px; background: var(--soft); border-radius: 8px; }
+  .ref-cell { aspect-ratio: 1; background: var(--photo-bg); border-radius: 6px; overflow: hidden; position: relative; }
+  .ref-cell img { width: 100%; height: 100%; object-fit: cover; }
+  .ref-cell .lbl { position: absolute; bottom: 0; left: 0; right: 0; background: rgba(0,0,0,.65); color: white; font-size: 8.5px; padding: 2px 3px; text-align: center; line-height: 1.1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sample-grid { display: grid; grid-template-columns: 1fr; gap: 8px; margin-top: 10px; max-height: 320px; overflow-y: auto; }
+  .sample-row { display: flex; gap: 10px; align-items: center; background: var(--soft); border-radius: 10px; padding: 8px; }
+  .sample-row .pair { display: flex; gap: 6px; align-items: center; }
+  .sample-row .pair img { width: 60px; height: 60px; object-fit: cover; border-radius: 6px; }
+  .sample-row .arrow { color: var(--muted); font-size: 16px; }
+  .sample-row .meta { flex: 1; font-size: 12px; line-height: 1.3; }
+  .sample-row .meta .plant { font-weight: 700; }
+  .sample-row .meta .note { color: var(--muted); }
+  .conf-pill { display: inline-block; font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 6px; }
+  .conf-pill.high   { background: var(--good-bg); color: var(--good-fg); }
+  .conf-pill.medium { background: var(--info-bg); color: var(--info-fg); }
+  .conf-pill.low    { background: var(--warn-bg); color: var(--warn-fg); }
+  .conf-pill.none   { background: var(--soft); color: var(--muted); }
+  #cluster-close { float: right; background: var(--soft); border: none; border-radius: 50%; width: 30px; height: 30px; font-size: 18px; cursor: pointer; color: var(--muted); font-family: inherit; }
+
+  /* Auto-cluster trigger button */
+  .auto-btn { background: linear-gradient(135deg,#7c3aed,#6d28d9); color: white; border: none; border-radius: 16px; padding: 6px 12px; font-size: 12px; font-weight: 700; font-family: inherit; cursor: pointer; box-shadow: 0 2px 6px rgba(124,58,237,.3); }
+  .auto-btn:disabled { opacity: .4; cursor: not-allowed; box-shadow: none; }
+
   /* Bulk action bar */
   #bulk-bar { position: fixed; bottom: 0; left: 0; right: 0; background: var(--green); color: white; padding: 11px 14px; box-shadow: 0 -4px 16px rgba(0,0,0,.25); z-index: 95; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
   #bulk-bar.hidden { display: none; }
@@ -159,6 +204,7 @@
   <div id="summary-row" style="display:none">
     <div id="summary"></div>
     <div class="row-actions">
+      <button id="auto-cluster" class="auto-btn">🤖 Auto-assign</button>
       <button id="clear-done">Clear done</button>
       <button id="clear-all">Clear all</button>
       <button id="upload-bot" class="primary" disabled>Upload All Ready</button>
@@ -175,6 +221,15 @@
   <button class="ghost" id="bulk-all">All visible</button>
   <button class="ghost" id="bulk-clear-sel">Clear</button>
   <div class="cb-wrap" id="bulk-cb-slot"></div>
+</div>
+
+<div id="cluster-overlay" class="hidden">
+  <div id="cluster-panel">
+    <button id="cluster-close" title="Close">×</button>
+    <h2>🤖 Auto-assign with AI</h2>
+    <div class="sub">Match each unassigned photo against your plants' current reference photos. Nothing's sent to the API until you press a button here.</div>
+    <div id="cluster-steps"></div>
+  </div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -1090,6 +1145,522 @@ async function restoreFromIDB() {
   const droppedSuffix = dropped > 0 ? ' (removed ' + dropped + ' duplicate' + (dropped === 1 ? '' : 's') + ')' : '';
   showToast('Restored ' + cards.length + ' photo' + (cards.length === 1 ? '' : 's') + ' from last session' + droppedSuffix);
 }
+
+// ── Auto-cluster (AI matching) ──────────────────────────────────────────────
+//
+// Workflow:
+//   1. Local dedup   — perceptual-hash unassigned cards, group near-duplicates.
+//                      Each group has a representative card; only that one is
+//                      sent to the API. After matching, the rest in the group
+//                      inherit the match.
+//   2. Load refs     — fetch one current cover photo per plant. Thumbnail to
+//                      ~200px and base64-encode for API transit.
+//   3. Test on N     — small batch (default 10 representatives) to verify
+//                      match quality before committing to the full run.
+//   4. Match all     — process remaining representatives in batches of
+//                      MATCH_BATCH_SIZE. With prompt caching, only the first
+//                      batch pays full reference-token cost.
+//   5. Apply         — for each result, set the rep card's plantId + status,
+//                      propagate to its near-dup group, and skip low/none.
+//
+const MATCH_BATCH_SIZE = 12;
+const MATCH_TEST_SIZE  = 10;
+const REF_THUMB_PX     = 200;
+const CARD_THUMB_PX    = 500;
+const DHASH_THRESHOLD  = 5;          // <=5 bits diff out of 64 → "near-duplicate"
+
+let clusterState = null;             // see resetClusterState()
+
+function resetClusterState() {
+  clusterState = {
+    step: 'idle',                    // idle | dedup-done | refs-ready | tested | matched
+    groups: [],                      // [[uid, uid, ...]] — first is representative
+    repByUid: new Map(),             // uid -> representativeUid
+    references: [],                  // [{id, name, sub, dataUrl}]
+    plantsWithoutRefs: [],
+    thumbCache: new Map(),           // uid -> dataUrl (500px JPEG)
+    matches: new Map(),              // repUid -> { plantId, confidence, note }
+    tested: false,
+    testUsage: null,
+    fullUsage: null,
+    error: null,
+  };
+}
+
+// ── dHash (difference hash) — 64-bit perceptual hash ────────────────────────
+function dHashFromImage(img) {
+  const c = document.createElement('canvas');
+  c.width = 9; c.height = 8;
+  c.getContext('2d').drawImage(img, 0, 0, 9, 8);
+  const data = c.getContext('2d').getImageData(0, 0, 9, 8).data;
+  const gray = new Array(72);
+  for (let i = 0, j = 0; i < data.length; i += 4, j++) {
+    gray[j] = (data[i] + data[i+1] + data[i+2]) / 3;
+  }
+  let h = '';
+  for (let row = 0; row < 8; row++) {
+    for (let col = 0; col < 8; col++) {
+      const left  = gray[row * 9 + col];
+      const right = gray[row * 9 + col + 1];
+      h += left > right ? '1' : '0';
+    }
+  }
+  return h;
+}
+function hamming(a, b) {
+  let d = 0;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) d++;
+  return d;
+}
+function loadImageFromFile(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload  = () => { URL.revokeObjectURL(url); resolve(img); };
+    img.onerror = e  => { URL.revokeObjectURL(url); reject(e); };
+    img.src = url;
+  });
+}
+async function loadImageFromUrl(url) {
+  const resp = await fetch(url);
+  const blob = await resp.blob();
+  return loadImageFromFile(new File([blob], 'ref.jpg', { type: blob.type }));
+}
+function thumbnailToDataUrl(img, maxDim, quality) {
+  let w = img.naturalWidth || img.width;
+  let h = img.naturalHeight || img.height;
+  if (w > h && w > maxDim)       { h = h * maxDim / w; w = maxDim; }
+  else if (h > w && h > maxDim)  { w = w * maxDim / h; h = maxDim; }
+  else if (w > maxDim)           { h = h * maxDim / w; w = maxDim; }
+  const c = document.createElement('canvas');
+  c.width = Math.round(w); c.height = Math.round(h);
+  c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+  return c.toDataURL('image/jpeg', quality || 0.78);
+}
+
+// ── Step 1: local dedup ─────────────────────────────────────────────────────
+async function runDedup(onProgress) {
+  const unassigned = cards.filter(c => c.status === 'unassigned');
+  const hashed = [];
+  for (let i = 0; i < unassigned.length; i++) {
+    const c = unassigned[i];
+    try {
+      const img = await loadImageFromFile(c.file);
+      const h   = dHashFromImage(img);
+      hashed.push({ uid: c.uid, hash: h });
+    } catch (e) {
+      hashed.push({ uid: c.uid, hash: null });   // unhashable still gets its own group
+    }
+    if (onProgress) onProgress(i + 1, unassigned.length);
+  }
+  // Greedy single-linkage clustering against group representatives
+  const groups = [];          // [{ rep: uid, hash, members: [uid,...] }]
+  for (const h of hashed) {
+    let placed = false;
+    if (h.hash) {
+      for (const g of groups) {
+        if (g.hash && hamming(g.hash, h.hash) <= DHASH_THRESHOLD) {
+          g.members.push(h.uid);
+          placed = true;
+          break;
+        }
+      }
+    }
+    if (!placed) groups.push({ rep: h.uid, hash: h.hash, members: [h.uid] });
+  }
+  clusterState.groups = groups.map(g => g.members);
+  clusterState.repByUid.clear();
+  for (const g of groups) for (const m of g.members) clusterState.repByUid.set(m, g.rep);
+  clusterState.step = 'dedup-done';
+  return { total: unassigned.length, unique: groups.length, collapsed: unassigned.length - groups.length };
+}
+
+// ── Step 2: load reference cover photos ─────────────────────────────────────
+async function loadReferencesForCluster(onProgress) {
+  const refs = [];
+  const missing = [];
+  // Concurrency limit so we don't hammer Supabase
+  const queue = PLANTS.slice();
+  let done = 0;
+  const CONC = 6;
+  async function worker() {
+    while (queue.length) {
+      const p = queue.shift();
+      try {
+        const list = await sb.storage.from(BUCKET).list(p.id, {
+          limit: 1,
+          sortBy: { column: 'name', order: 'desc' }
+        });
+        const latest = (list.data || []).find(f => f.name?.endsWith('.jpg'));
+        if (!latest) { missing.push(p); }
+        else {
+          const url = `${SUPABASE_URL}/storage/v1/object/public/${BUCKET}/${p.id}/${latest.name}`;
+          const img = await loadImageFromUrl(url);
+          const dataUrl = thumbnailToDataUrl(img, REF_THUMB_PX, 0.75);
+          refs.push({ id: p.id, name: p.name, sub: p.sub || '', dataUrl });
+        }
+      } catch (e) {
+        missing.push(p);
+      }
+      done++;
+      if (onProgress) onProgress(done, PLANTS.length);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(CONC, PLANTS.length) }, worker));
+  clusterState.references = refs;
+  clusterState.plantsWithoutRefs = missing;
+  clusterState.step = 'refs-ready';
+  return { refs: refs.length, missing: missing.length };
+}
+
+// ── Prepare a card's thumbnail dataUrl (cached on clusterState) ────────────
+async function getCardThumbDataUrl(uid) {
+  const cached = clusterState.thumbCache.get(uid);
+  if (cached) return cached;
+  const card = cards.find(c => c.uid === uid);
+  if (!card) return null;
+  const img = await loadImageFromFile(card.file);
+  const dataUrl = thumbnailToDataUrl(img, CARD_THUMB_PX, 0.78);
+  clusterState.thumbCache.set(uid, dataUrl);
+  return dataUrl;
+}
+
+// ── Step 3/4: run match API in batches ──────────────────────────────────────
+async function runMatchBatches(repUids, onProgress) {
+  let totalUsage = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 };
+  let batchesDone = 0;
+  const batches = [];
+  for (let i = 0; i < repUids.length; i += MATCH_BATCH_SIZE) {
+    batches.push(repUids.slice(i, i + MATCH_BATCH_SIZE));
+  }
+  for (const batch of batches) {
+    // Build the cards payload — thumbnail each rep
+    const cardsPayload = [];
+    for (const uid of batch) {
+      const dataUrl = await getCardThumbDataUrl(uid);
+      if (!dataUrl) continue;
+      cardsPayload.push({ uid, dataUrl });
+    }
+    if (cardsPayload.length === 0) {
+      batchesDone++;
+      onProgress?.(batchesDone, batches.length, totalUsage);
+      continue;
+    }
+    // Call the API
+    const resp = await fetch('/api/match-photos', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-plant-key': plantKey || '',
+      },
+      body: JSON.stringify({ cards: cardsPayload, references: clusterState.references })
+    });
+    if (!resp.ok) {
+      let msg;
+      try { msg = (await resp.json()).error || resp.statusText; }
+      catch { msg = resp.statusText; }
+      // 401 → passphrase prompt + retry once
+      if (resp.status === 401) {
+        const ok = await promptPassphrase('Passphrase needed to call the matching API.');
+        if (ok) {
+          const retry = await fetch('/api/match-photos', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-plant-key': plantKey || '' },
+            body: JSON.stringify({ cards: cardsPayload, references: clusterState.references })
+          });
+          if (retry.ok) {
+            const r = await retry.json();
+            for (const m of (r.matches || [])) clusterState.matches.set(m.uid, m);
+            mergeUsage(totalUsage, r.usage);
+            batchesDone++;
+            onProgress?.(batchesDone, batches.length, totalUsage);
+            continue;
+          }
+        }
+      }
+      throw new Error('API error (' + resp.status + '): ' + msg);
+    }
+    const r = await resp.json();
+    for (const m of (r.matches || [])) clusterState.matches.set(m.uid, m);
+    mergeUsage(totalUsage, r.usage);
+    batchesDone++;
+    onProgress?.(batchesDone, batches.length, totalUsage);
+  }
+  return totalUsage;
+}
+function mergeUsage(tgt, src) {
+  if (!src) return;
+  tgt.input_tokens  += src.input_tokens  || 0;
+  tgt.output_tokens += src.output_tokens || 0;
+  tgt.cache_read_input_tokens     += src.cache_read_input_tokens     || 0;
+  tgt.cache_creation_input_tokens += src.cache_creation_input_tokens || 0;
+}
+function estimateCostUSD(usage) {
+  // Sonnet 4.6 pricing (approx, USD per million tokens):
+  //   input $3 · output $15 · cache write $3.75 · cache read $0.30
+  const inUSD    = (usage.input_tokens  / 1e6) * 3.0;
+  const outUSD   = (usage.output_tokens / 1e6) * 15.0;
+  const wrUSD    = (usage.cache_creation_input_tokens / 1e6) * 3.75;
+  const rdUSD    = (usage.cache_read_input_tokens     / 1e6) * 0.30;
+  return inUSD + outUSD + wrUSD + rdUSD;
+}
+
+// ── Apply matched results to actual cards ───────────────────────────────────
+function applyMatchesToCards() {
+  let applied = 0, skipped = 0;
+  for (const group of clusterState.groups) {
+    const repUid = group[0];
+    const m = clusterState.matches.get(repUid);
+    if (!m || !m.plantId || m.confidence === 'none' || m.confidence === 'low') { skipped += group.length; continue; }
+    for (const uid of group) {
+      const card = cards.find(c => c.uid === uid);
+      if (!card || card.status !== 'unassigned') continue;
+      card.plantId = m.plantId;
+      card.status  = 'ready';
+      card.errorMsg = '';
+      card.force   = false;
+      markDirty(card);
+      applied++;
+    }
+  }
+  renderGrid();
+  showToast('Auto-assigned ' + applied + ' photo' + (applied === 1 ? '' : 's') + (skipped ? ' (' + skipped + ' low/no-confidence left unassigned)' : ''));
+  return { applied, skipped };
+}
+
+// ── Cluster panel rendering ─────────────────────────────────────────────────
+function escAttr(s) { return esc(s); }
+
+function renderClusterPanel() {
+  const steps = document.getElementById('cluster-steps');
+  const unassignedCount = cards.filter(c => c.status === 'unassigned').length;
+  const s = clusterState;
+  const html = [];
+
+  // Step 1 — Dedup
+  html.push(stepHtml({
+    key: 'dedup',
+    title: '1. Local dedup (free)',
+    locked: false,
+    done: s.step !== 'idle',
+    body: s.step === 'idle'
+      ? '<div class="muted">Perceptual-hash all ' + unassignedCount + ' unassigned photos and collapse near-duplicate burst shots. Runs locally — no API calls.</div>' +
+        '<div class="row"><button class="primary" data-step="dedup">Run dedup</button></div>'
+      : '<div class="result">Reduced <strong>' + s.dedupResult.total + '</strong> photos → <strong>' + s.dedupResult.unique + '</strong> unique (collapsed ' + s.dedupResult.collapsed + ' near-duplicates).</div>'
+  }));
+
+  // Step 2 — References
+  const refsLocked = s.step === 'idle';
+  if (s.step === 'dedup-done') {
+    html.push(stepHtml({
+      key: 'refs',
+      title: '2. Load reference photos (free)',
+      locked: refsLocked,
+      done: false,
+      active: true,
+      body: '<div class="muted">Fetch one current photo per plant and thumbnail it for the API. Runs locally — only your Supabase, no Claude calls.</div>' +
+            '<div class="row"><button class="primary" data-step="refs">Load references</button></div>'
+    }));
+  } else if (s.step === 'refs-ready' || s.step === 'tested' || s.step === 'matched') {
+    html.push(stepHtml({
+      key: 'refs',
+      title: '2. Load reference photos (free)',
+      locked: false,
+      done: true,
+      body: '<div class="result"><strong>' + s.references.length + '</strong> reference photos loaded' + (s.plantsWithoutRefs.length ? ' · <span class="muted">' + s.plantsWithoutRefs.length + ' plants have no photo yet — those won\'t appear in matches</span>' : '') + '</div>' +
+            refsGridHtml(s.references)
+    }));
+  }
+
+  // Step 3 — Test
+  if (s.step === 'refs-ready' || s.step === 'tested' || s.step === 'matched') {
+    const done = s.step === 'tested' || s.step === 'matched';
+    const testedCost = s.testUsage ? estimateCostUSD(s.testUsage) : null;
+    html.push(stepHtml({
+      key: 'test',
+      title: '3. Test on ' + MATCH_TEST_SIZE + ' random photos (small spend)',
+      locked: false,
+      done: done,
+      active: !done,
+      body: done
+        ? '<div class="result">Test complete. Spent <strong>$' + testedCost.toFixed(3) + '</strong> on <strong>' + (s.testMatches?.length || 0) + '</strong> match' + (s.testMatches?.length === 1 ? '' : 'es') + '. Review the sample below.</div>' +
+          sampleHtml(s.testMatches || [])
+        : '<div class="muted">Pull ' + MATCH_TEST_SIZE + ' random representatives and run them through Claude vision. Refs get cached so subsequent batches are cheaper.</div>' +
+          '<div class="row"><button class="secondary" data-step="test">Run test (~$0.30)</button><button class="ghost" data-step="skip-test">Skip test</button></div>'
+    }));
+  }
+
+  // Step 4 — Full match
+  if (s.step === 'tested' || s.step === 'matched' || (s.step === 'refs-ready' && s.skipTest)) {
+    const done = s.step === 'matched';
+    const remaining = s.groups.length - (s.testMatches?.length || 0);
+    const fullCost = s.fullUsage ? estimateCostUSD(s.fullUsage) : null;
+    const estimatePer = s.testUsage ? estimateCostUSD(s.testUsage) / (s.testMatches?.length || 1) : 0.04;
+    const estimateFull = (estimatePer * remaining).toFixed(2);
+    html.push(stepHtml({
+      key: 'full',
+      title: '4. Match all remaining (' + remaining + ' photos)',
+      locked: false,
+      done: done,
+      active: !done,
+      body: done
+        ? '<div class="result">Match complete. Spent <strong>$' + fullCost.toFixed(3) + '</strong>. ' + countMatchHtml(s.matches) + '</div>' +
+          '<div class="row"><button class="primary" data-step="apply">Apply matches to cards</button><button class="ghost" data-step="discard">Discard</button></div>'
+        : '<div class="muted">Run the remaining ' + remaining + ' representatives through the API. Estimated cost: <strong>~$' + estimateFull + '</strong> (based on test).</div>' +
+          '<div class="row"><button class="primary" data-step="full">Match all (~$' + estimateFull + ')</button></div>'
+    }));
+  }
+
+  // Progress / errors
+  if (s.progress) {
+    html.push('<div class="cluster-step active"><div class="title">⏳ ' + esc(s.progress.label) + '</div>' +
+              '<div class="progress-bar"><div style="width:' + Math.round(100 * s.progress.done / Math.max(1, s.progress.total)) + '%"></div></div>' +
+              '<div class="body muted" style="margin-top:6px">' + s.progress.done + ' / ' + s.progress.total + (s.progress.usage ? ' · running cost ~$' + estimateCostUSD(s.progress.usage).toFixed(3) : '') + '</div></div>');
+  }
+  if (s.error) {
+    html.push('<div class="cluster-step" style="border-color:var(--danger-fg);background:var(--danger-bg);color:var(--danger-fg)"><div class="title">⚠ ' + esc(s.error) + '</div></div>');
+  }
+
+  steps.innerHTML = html.join('');
+
+  // Wire up step buttons (delegated)
+  steps.querySelectorAll('button[data-step]').forEach(btn => {
+    btn.addEventListener('click', () => handleStepClick(btn.dataset.step));
+  });
+}
+
+function stepHtml({ key, title, locked, done, active, body }) {
+  const cls = 'cluster-step' + (locked ? ' locked' : '') + (done ? ' done' : '') + (active ? ' active' : '');
+  const icon = done ? '✓' : (active ? '→' : '·');
+  return '<div class="' + cls + '" data-step-key="' + esc(key) + '">' +
+           '<div class="title">' + icon + ' ' + esc(title) + '</div>' +
+           '<div class="body">' + body + '</div>' +
+         '</div>';
+}
+function refsGridHtml(refs) {
+  if (!refs.length) return '';
+  const showMax = 60;
+  const slice = refs.slice(0, showMax);
+  const more = refs.length > showMax ? '<div class="ref-cell" style="display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:var(--muted)">+' + (refs.length - showMax) + '</div>' : '';
+  return '<div class="ref-grid">' +
+    slice.map(r => '<div class="ref-cell" title="' + esc(r.name) + (r.sub ? ' (' + esc(r.sub) + ')' : '') + '"><img src="' + r.dataUrl + '" alt=""><div class="lbl">' + esc(r.name) + '</div></div>').join('') +
+    more +
+    '</div>';
+}
+function sampleHtml(matches) {
+  if (!matches.length) return '<div class="muted">No matches in test.</div>';
+  return '<div class="sample-grid">' + matches.map(m => {
+    const card = cards.find(c => c.uid === m.uid);
+    if (!card) return '';
+    const ref  = clusterState.references.find(r => r.id === m.plantId);
+    const refImg = ref ? '<img src="' + ref.dataUrl + '" alt="">' : '<div style="width:60px;height:60px;background:var(--soft);border-radius:6px;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:9px">no match</div>';
+    const refLabel = ref ? ref.name + (ref.sub ? ' (' + ref.sub + ')' : '') : '— no match —';
+    return '<div class="sample-row">' +
+             '<div class="pair">' +
+               '<img src="' + card.previewUrl + '" alt="">' +
+               '<span class="arrow">→</span>' +
+               refImg +
+             '</div>' +
+             '<div class="meta">' +
+               '<div class="plant">' + esc(refLabel) + ' <span class="conf-pill ' + m.confidence + '">' + m.confidence + '</span></div>' +
+               '<div class="note">' + esc(m.note || '') + '</div>' +
+             '</div>' +
+           '</div>';
+  }).join('') + '</div>';
+}
+function countMatchHtml(matchesMap) {
+  const counts = { high: 0, medium: 0, low: 0, none: 0 };
+  for (const m of matchesMap.values()) counts[m.confidence] = (counts[m.confidence] || 0) + 1;
+  return '<span class="conf-pill high">high ' + counts.high + '</span> ' +
+         '<span class="conf-pill medium">medium ' + counts.medium + '</span> ' +
+         '<span class="conf-pill low">low ' + counts.low + '</span> ' +
+         '<span class="conf-pill none">none ' + counts.none + '</span>';
+}
+
+async function handleStepClick(step) {
+  const s = clusterState;
+  try {
+    if (step === 'dedup') {
+      s.progress = { label: 'Hashing photos…', done: 0, total: 0 };
+      renderClusterPanel();
+      s.dedupResult = await runDedup((d, t) => { s.progress = { label: 'Hashing photos…', done: d, total: t }; renderClusterPanel(); });
+      s.progress = null;
+      renderClusterPanel();
+    } else if (step === 'refs') {
+      s.progress = { label: 'Loading reference photos…', done: 0, total: PLANTS.length };
+      renderClusterPanel();
+      await loadReferencesForCluster((d, t) => { s.progress = { label: 'Loading reference photos…', done: d, total: t }; renderClusterPanel(); });
+      s.progress = null;
+      renderClusterPanel();
+    } else if (step === 'test') {
+      // Sample MATCH_TEST_SIZE random representatives
+      const reps = s.groups.map(g => g[0]);
+      const sample = shuffle(reps.slice()).slice(0, Math.min(MATCH_TEST_SIZE, reps.length));
+      s.progress = { label: 'Test matching…', done: 0, total: 1 };
+      renderClusterPanel();
+      const usage = await runMatchBatches(sample, (d, t, u) => { s.progress = { label: 'Test matching…', done: d, total: t, usage: u }; renderClusterPanel(); });
+      s.testUsage = usage;
+      s.testMatches = sample.map(uid => clusterState.matches.get(uid)).filter(Boolean);
+      s.step = 'tested';
+      s.progress = null;
+      renderClusterPanel();
+    } else if (step === 'skip-test') {
+      s.skipTest = true;
+      s.testMatches = [];
+      s.step = 'tested';
+      renderClusterPanel();
+    } else if (step === 'full') {
+      // Run remaining representatives (those not already in matches)
+      const remaining = s.groups.map(g => g[0]).filter(uid => !s.matches.has(uid));
+      s.progress = { label: 'Matching all photos…', done: 0, total: 1 };
+      renderClusterPanel();
+      const usage = await runMatchBatches(remaining, (d, t, u) => { s.progress = { label: 'Matching all photos…', done: d, total: t, usage: u }; renderClusterPanel(); });
+      s.fullUsage = usage;
+      s.step = 'matched';
+      s.progress = null;
+      renderClusterPanel();
+    } else if (step === 'apply') {
+      applyMatchesToCards();
+      closeClusterPanel();
+    } else if (step === 'discard') {
+      closeClusterPanel();
+    }
+  } catch (err) {
+    s.progress = null;
+    s.error = err.message || String(err);
+    renderClusterPanel();
+  }
+}
+
+function shuffle(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = (i * 9301 + 49297) % 233280;   // deterministic-ish (no Math.random)
+    const k = Math.abs(j) % (i + 1);
+    [arr[i], arr[k]] = [arr[k], arr[i]];
+  }
+  return arr;
+}
+
+function openClusterPanel() {
+  resetClusterState();
+  document.getElementById('cluster-overlay').classList.remove('hidden');
+  renderClusterPanel();
+}
+function closeClusterPanel() {
+  document.getElementById('cluster-overlay').classList.add('hidden');
+  clusterState = null;
+}
+
+document.getElementById('auto-cluster').addEventListener('click', () => {
+  const unassigned = cards.filter(c => c.status === 'unassigned').length;
+  if (unassigned === 0) { showToast('Nothing to auto-assign — no unassigned photos'); return; }
+  if (PLANTS.length === 0) { showToast('Plants not loaded yet — try again in a moment'); return; }
+  openClusterPanel();
+});
+document.getElementById('cluster-close').addEventListener('click', closeClusterPanel);
+document.getElementById('cluster-overlay').addEventListener('click', e => {
+  if (e.target === document.getElementById('cluster-overlay')) closeClusterPanel();
+});
 
 loadPlants();
 restoreFromIDB();
