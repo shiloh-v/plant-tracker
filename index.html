@@ -557,16 +557,21 @@ function plantHealth(plant) {
   return overrides[plant.id]?.health || inferHealthFromStatus(getStatus(plant));
 }
 
-// Most recent "[Month Day, YYYY AI analysis]" tag in the notes log, or null.
-// The /api/analyze-photo endpoint writes this format on every run.
+// Most recent "[...AI analysis]" tag in the notes log, or null.
+// The /api/analyze-photo endpoint writes the date in en-US "Mon D, YYYY"
+// form, but older entries may have other shapes (full month name, slash
+// dates, etc) and the user can hand-edit notes too — so just capture
+// whatever is inside the brackets and let Date.parse sort it out.
 function lastAIAnalysisDate(plantId) {
   const notes = overrides[plantId]?.notes || '';
-  const matches = [...notes.matchAll(/\[([A-Z][a-z]+ \d{1,2}, \d{4}) AI analysis\]/g)];
+  const matches = [...notes.matchAll(/\[([^\]]+?)\s+AI analysis\]/gi)];
   if (matches.length === 0) return null;
-  // Most recent appears LAST in notes (chronological append). Walk backwards to find a parseable date.
+  // Most recent appears LAST in notes (chronological append). Walk backwards
+  // to find a parseable date string.
   for (let i = matches.length - 1; i >= 0; i--) {
-    const d = new Date(matches[i][1]);
-    if (!isNaN(d.getTime())) return d;
+    const raw = matches[i][1].trim();
+    const d = new Date(raw);
+    if (!isNaN(d.getTime()) && d.getFullYear() > 2000 && d.getFullYear() < 2100) return d;
   }
   return null;
 }
