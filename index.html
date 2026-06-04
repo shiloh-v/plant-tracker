@@ -557,14 +557,14 @@ function plantHealth(plant) {
   return overrides[plant.id]?.health || inferHealthFromStatus(getStatus(plant));
 }
 
-// Most recent "[...AI analysis]" tag in the notes log, or null.
-// The /api/analyze-photo endpoint writes the date in en-US "Mon D, YYYY"
-// form, but older entries may have other shapes (full month name, slash
-// dates, etc) and the user can hand-edit notes too — so just capture
-// whatever is inside the brackets and let Date.parse sort it out.
+// Most recent "[<date> AI analysis]" or "[<date> photo review]" tag in the
+// notes log, or null. The current /api/analyze-photo endpoint writes the
+// "AI analysis" suffix; older runs of the same feature used "photo review"
+// — both count for the timestamp display and the cost-guard. Lets
+// Date.parse handle whatever date format is between the brackets.
 function lastAIAnalysisDate(plantId) {
   const notes = overrides[plantId]?.notes || '';
-  const matches = [...notes.matchAll(/\[([^\]]+?)\s+AI analysis\]/gi)];
+  const matches = [...notes.matchAll(/\[([^\]]+?)\s+(?:AI analysis|photo review)\]/gi)];
   if (matches.length === 0) return null;
   // Most recent appears LAST in notes (chronological append). Walk backwards
   // to find a parseable date string.
