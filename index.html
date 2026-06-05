@@ -814,7 +814,10 @@ function lastEvent(plantId, kind) {
 // until next due (negative if overdue, null if no cadence set).
 function careStatus(plant, kind, cadence) {
   const last = lastEvent(plant.id, kind);
-  if (!last) return { days: null, dueIn: cadence ? -Infinity : null, lastDate: null };
+  // No prior log → dueIn is null (not "overdue"), even if a cadence is set.
+  // Otherwise newly-added cadences spam the Attention tab until the user logs
+  // the first watering/feeding.
+  if (!last) return { days: null, dueIn: null, lastDate: null };
   const lastTs = new Date(last.occurred_at).getTime();
   const now = Date.now();
   const days = Math.floor((now - lastTs) / 86400000);

@@ -86,7 +86,10 @@ function buildDigest({ plants, overrides, careEvents }) {
       reason = health;
     }
 
-    // Overdue water (only if cadence set)
+    // Overdue water — only flag if the plant has been watered AT LEAST ONCE
+    // before AND the cadence has lapsed. "Never watered" doesn't count, so
+    // newly-added plants with cadence set don't spam the attention list until
+    // the user has actually started logging.
     let waterOverdueDays = null;
     if (p.water_every_days) {
       const events = eventsByPlant[p.id] || [];
@@ -95,8 +98,6 @@ function buildDigest({ plants, overrides, careEvents }) {
         const daysSince = Math.floor((now - new Date(lastWater.occurred_at).getTime()) / 86400000);
         const dueIn = p.water_every_days - daysSince;
         if (dueIn <= 0) waterOverdueDays = -dueIn;
-      } else {
-        waterOverdueDays = 999; // never watered
       }
     }
 
