@@ -352,8 +352,13 @@
       </label>
     </div>
 
+    <div class="field-wrap">
+      <div class="field-label">Sticky care notes <span style="font-weight:400;color:var(--muted);font-size:11px">— durable instructions (light, temp, watering style)</span></div>
+      <textarea id="f-care-notes" rows="3" style="width:100%;padding:9px 11px;border-radius:10px;border:1.5px solid var(--border);font-size:13px;font-family:inherit;outline:none;background:white;resize:vertical" placeholder="e.g. Bright indirect light. Allow top inch to dry. Keep above 60°F."></textarea>
+    </div>
+
     <div class="field-wrap" id="f-status-wrap">
-      <div class="field-label">Initial status</div>
+      <div class="field-label">Initial status <span style="font-weight:400;color:var(--muted);font-size:11px">— current condition (will be updated by AI)</span></div>
       <textarea id="f-status" rows="2" style="width:100%;padding:9px 11px;border-radius:10px;border:1.5px solid var(--border);font-size:13px;font-family:inherit;outline:none;background:white;resize:vertical" placeholder="e.g. Newly acquired — establishing"></textarea>
     </div>
 
@@ -2067,6 +2072,7 @@ function openPlantForm(mode, plant) {
   document.getElementById('f-water-every').value = plant?.water_every_days ?? '';
   document.getElementById('f-feed-every').value  = plant?.feed_every_days  ?? '';
   document.getElementById('f-seasonal').checked  = !!plant?.seasonal_care;
+  document.getElementById('f-care-notes').value  = (plant && overrides[plant.id]?.care_notes) || '';
   document.getElementById('f-status').value = plant?.status || '';
 
   // Initial-status field only matters for new plants; hide on edit
@@ -2106,6 +2112,7 @@ async function savePlant() {
   const water_every_days = water_raw ? parseInt(water_raw, 10) : null;
   const feed_every_days  = feed_raw  ? parseInt(feed_raw,  10) : null;
   const seasonal_care = document.getElementById('f-seasonal').checked;
+  const care_notes = document.getElementById('f-care-notes').value.trim() || null;
   const status = document.getElementById('f-status').value.trim() || null;
 
   if (!id || !name || !type || !loc) {
@@ -2136,6 +2143,31 @@ async function savePlant() {
     btn.innerHTML = 'Save';
     btn.disabled = false;
     return;
+  }
+
+  // care_notes lives in plant_overrides — upsert it separately so existing
+  // health/notes/status overrides aren't clobbered. Skip if blank AND no
+  // prior override existed (avoid creating an empty override row).
+  const targetId = formMode === 'add' ? id : formEditingId;
+  const existingOv = overrides[targetId];
+  if (care_notes || existingOv?.care_notes) {
+    const ovRow = {
+      id: targetId,
+      care_notes,
+      // preserve existing override fields so upsert doesn't wipe them
+      status: existingOv?.status ?? null,
+      notes:  existingOv?.notes  ?? null,
+      health: existingOv?.health ?? null,
+      photo_ts: existingOv?.photo_ts ?? null,
+      updated_at: new Date().toISOString(),
+    };
+    const ovRes = await withKey('save care notes', () =>
+      sb.from('plant_overrides').upsert(ovRow).select(),
+      { expectRows: true }
+    );
+    if (ovRes.error) {
+      alert('Plant saved, but care notes failed: ' + ovRes.error.message);
+    }
   }
 
   // Re-load so PLANTS reflects the new state, then refresh views
@@ -2587,16 +2619,34 @@ document.getElementById('f-identify-input').addEventListener('change', async e =
     document.querySelectorAll('input[name="f-type"]').forEach(r => { r.checked = (r.value === t); });
     document.getElementById('f-id').value = nextId(t);
     document.getElementById('f-name').value = id.common_name || '';
+    if (id.variety) document.getElementById('f-sub').value = id.variety;
     document.getElementById('f-sci').value = id.scientific_name || '';
     document.getElementById('f-toxic').checked = !!id.toxic_to_dogs;
 
-    // Stash care hint in the status field as a starting note (user can edit)
-    if (id.care_hint && !document.getElementById('f-status').value) {
-      document.getElementById('f-status').value = 'Newly added — ' + id.care_hint;
+    // Cadence + seasonal — only fill if user hasn't already entered something
+    if (id.water_every_days && !document.getElementById('f-water-every').value) {
+      document.getElementById('f-water-every').value = id.water_every_days;
+    }
+    if (id.feed_every_days && !document.getElementById('f-feed-every').value) {
+      document.getElementById('f-feed-every').value = id.feed_every_days;
+    }
+    if (typeof id.seasonal_care === 'boolean') {
+      document.getElementById('f-seasonal').checked = id.seasonal_care;
+    }
+
+    // Sticky care notes — durable directives the user can edit
+    if (id.care_notes && !document.getElementById('f-care-notes').value) {
+      document.getElementById('f-care-notes').value = id.care_notes;
+    }
+
+    // Status field starts as "Newly added" — short, since care_notes now
+    // holds the long-lived care guidance
+    if (!document.getElementById('f-status').value) {
+      document.getElementById('f-status').value = 'Newly added';
     }
 
     // Status message with confidence and alternatives
-    let msg = '✓ ' + id.common_name + ' (' + id.confidence + ' confidence)';
+    let msg = '✓ ' + id.common_name + (id.variety ? ' (' + id.variety + ')' : '') + ' — ' + id.confidence + ' confidence';
     if (id.alternatives?.length && id.confidence !== 'high') {
       msg += ' · also could be: ' + id.alternatives.map(a => a.common_name).join(', ');
     }

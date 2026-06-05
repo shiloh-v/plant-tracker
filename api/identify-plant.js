@@ -19,6 +19,10 @@ const ID_SCHEMA = {
       type: 'string',
       description: 'Most-likely common name (e.g. "Monstera", "African Violet").'
     },
+    variety: {
+      type: 'string',
+      description: 'Cultivar or variety name if visible from distinctive features (e.g. "Albo Variegata", "Sizzle"). Empty string if not identifiable.'
+    },
     scientific_name: {
       type: 'string',
       description: 'Full scientific name including variety/cultivar if visible (e.g. "Monstera deliciosa", "Saintpaulia ionantha").'
@@ -37,6 +41,26 @@ const ID_SCHEMA = {
       type: 'boolean',
       description: 'True if the species is known to be toxic to dogs (ASPCA list or similar).'
     },
+    seasonal_care: {
+      type: 'boolean',
+      description: 'True if care needs shift meaningfully in fall/winter (succulents needing dormancy, deciduous tropicals, annuals that die in frost, outdoor plants in temperate zones).'
+    },
+    water_every_days: {
+      type: 'integer',
+      minimum: 1,
+      maximum: 180,
+      description: 'Starting watering cadence in days for a typical indoor/outdoor setup. Be realistic: succulents 14-21, tropicals 5-10, ferns 3-5, annual vegetables 2-3.'
+    },
+    feed_every_days: {
+      type: 'integer',
+      minimum: 7,
+      maximum: 365,
+      description: 'Starting feeding cadence in days. Conservative — better to under-feed than burn roots. Succulents 60-90, tropicals 30, annual veg 14, slow growers 60+.'
+    },
+    care_notes: {
+      type: 'string',
+      description: 'Sticky care directives — temperature limits, watering style, light needs, common pitfalls. 2-4 short sentences, no bullets. Things that should never change. NOT a current-condition observation. Example: "Bright indirect light. Allow top inch to dry between waterings. Keep above 60°F. Susceptible to spider mites in dry indoor air."'
+    },
     alternatives: {
       type: 'array',
       items: {
@@ -49,13 +73,9 @@ const ID_SCHEMA = {
         additionalProperties: false
       },
       description: 'Up to 3 other species this could be, if confidence is low or medium.'
-    },
-    care_hint: {
-      type: 'string',
-      description: 'One short sentence with the most important care fact for this species (e.g. "Bright indirect light; let topsoil dry between waterings").'
     }
   },
-  required: ['common_name', 'scientific_name', 'confidence', 'indoor_outdoor', 'toxic_to_dogs', 'alternatives', 'care_hint'],
+  required: ['common_name', 'variety', 'scientific_name', 'confidence', 'indoor_outdoor', 'toxic_to_dogs', 'seasonal_care', 'water_every_days', 'feed_every_days', 'care_notes', 'alternatives'],
   additionalProperties: false
 };
 
@@ -104,16 +124,28 @@ export default async function handler(req, res) {
           {
             type: 'text',
             text:
-              "Identify the plant species in this photo for a home gardener's plant tracker.\n\n" +
-              "Return your best identification with a confidence level. If confidence is medium " +
-              "or low, include 1–3 alternative species in the alternatives array.\n\n" +
+              "Identify the plant species in this photo for a home gardener's plant tracker and pre-fill the new-plant form.\n\n" +
+              "Return your best species ID + variety (if visible) with a confidence level. " +
+              "If confidence is medium or low, include 1–3 alternative species in the alternatives array.\n\n" +
               "For indoor_outdoor, pick the context this species is most commonly grown in for a " +
               "typical home gardener in temperate North America.\n\n" +
-              "For toxic_to_dogs, set true only if the species is on the ASPCA toxic-to-dogs " +
-              "list or has a well-known toxicity to canines. When unsure, set false.\n\n" +
-              "care_hint should be a single short sentence with the most important care fact for " +
-              "someone who just got this plant — light needs, watering frequency, or a critical " +
-              "warning."
+              "For toxic_to_dogs, set true only if the species is on the ASPCA toxic-to-dogs list " +
+              "or has a well-known toxicity to canines. When unsure, set false.\n\n" +
+              "For seasonal_care, set true if care needs shift meaningfully in fall/winter — true " +
+              "for succulents/cacti, deciduous tropicals, annuals, and most outdoor plants. False " +
+              "for indoor tropicals that stay consistent year-round (Pothos, Monstera, Spider, etc.).\n\n" +
+              "For water_every_days and feed_every_days, give realistic starting cadences this " +
+              "specific species would need. Common ballparks:\n" +
+              "  - Succulents/cacti: water 14-21d, feed 60-90d\n" +
+              "  - Tropical foliage (Pothos, Monstera, Philodendron): water 7-10d, feed 30d\n" +
+              "  - Thirsty plants (Maidenhair fern, Fittonia): water 3-5d, feed 30d\n" +
+              "  - Herbs in containers: water 5-7d, feed 30d\n" +
+              "  - Annual vegetables (tomato, basil): water 2-3d, feed 14d\n" +
+              "  - Self-watering containers: use reservoir top-off interval (5-7d).\n\n" +
+              "For care_notes, write 2-4 short sticky directives the user should keep in mind " +
+              "forever about this species: light needs, watering style, temperature limits, common " +
+              "pitfalls. Plain text, no bullets, no leading emojis. These are durable instructions, " +
+              "NOT a current-condition observation."
           }
         ]
       }]
