@@ -3765,28 +3765,48 @@ function closePotsModal() {
 }
 
 function renderPotsModal() {
-  const active = POTS.filter(p => !p.retired_at).sort((a, b) => a.label.localeCompare(b.label));
+  const active = POTS.filter(p => !p.retired_at);
   const retired = POTS.filter(p => p.retired_at).sort((a, b) => new Date(b.retired_at) - new Date(a.retired_at));
+
+  // Split active into available vs in-use so each gets its own section with
+  // its own count — easier to scan than reading "Available" vs "In use by X"
+  // line by line across a flat list.
+  const availablePotRows = active
+    .filter(p => activePlantsForPot(p.label).length === 0)
+    .sort((a, b) => a.label.localeCompare(b.label));
+  const inUsePotRows = active
+    .filter(p => activePlantsForPot(p.label).length > 0)
+    .sort((a, b) => a.label.localeCompare(b.label));
 
   const fmt = ms => new Date(ms).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 
-  document.getElementById('pots-subtitle').textContent =
-    `${active.length} in inventory · ${retired.length} retired`;
+  document.getElementById('pots-subtitle').innerHTML =
+    `<strong style="color:var(--good-fg)">${availablePotRows.length} available</strong> · ` +
+    `${inUsePotRows.length} in use · ${retired.length} retired`;
 
-  const potRow = pot => {
+  // Available pots: green accent on the left, prominent. Retire button enabled.
+  const availableRow = pot => `
+    <div class="pot-row" data-pot-id="${pot.id}" style="display:flex;align-items:flex-start;gap:10px;padding:12px;border-bottom:1px solid var(--border);border-left:3px solid var(--good-fg);background:rgba(45,90,39,.04);cursor:pointer">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:14px;font-weight:700;line-height:1.25">${escapeHtml(pot.label)}</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:3px">Acquired ${fmt(pot.acquired_at)}</div>
+        ${pot.notes ? `<div style="font-size:11px;color:var(--muted);margin-top:3px;font-style:italic">${escapeHtml(pot.notes)}</div>` : ''}
+      </div>
+      <button class="pot-retire-btn" data-pot-id="${pot.id}" style="background:transparent;border:1.5px solid var(--border);color:var(--muted);border-radius:8px;padding:6px 10px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;flex-shrink:0">Retire</button>
+    </div>`;
+
+  // In-use pots: muted, plant name prominent so it's easy to find a specific pot.
+  const inUseRow = pot => {
     const holders = activePlantsForPot(pot.label);
-    const status = holders.length
-      ? `<span style="color:var(--text)">In use by <strong>${holders.map(p => escapeHtml(p.name)).join(', ')}</strong></span>`
-      : `<span style="color:var(--good-fg);font-weight:700">Available</span>`;
     return `
-      <div class="pot-row" data-pot-id="${pot.id}" style="display:flex;align-items:flex-start;gap:10px;padding:12px;border-bottom:1px solid var(--border)">
+      <div class="pot-row" data-pot-id="${pot.id}" style="display:flex;align-items:flex-start;gap:10px;padding:12px;border-bottom:1px solid var(--border);cursor:pointer">
         <div style="flex:1;min-width:0">
-          <div style="font-size:14px;font-weight:700;line-height:1.25">${escapeHtml(pot.label)}</div>
+          <div style="font-size:14px;font-weight:700;line-height:1.25;color:var(--text)">${escapeHtml(pot.label)}</div>
+          <div style="font-size:12px;color:var(--text);margin-top:4px">🌱 ${holders.map(p => escapeHtml(p.name)).join(', ')}</div>
           <div style="font-size:11px;color:var(--muted);margin-top:3px">Acquired ${fmt(pot.acquired_at)}</div>
-          <div style="font-size:12px;margin-top:5px">${status}</div>
           ${pot.notes ? `<div style="font-size:11px;color:var(--muted);margin-top:3px;font-style:italic">${escapeHtml(pot.notes)}</div>` : ''}
         </div>
-        <button class="pot-retire-btn" data-pot-id="${pot.id}" ${holders.length ? 'disabled title="Move the plant out first"' : ''} style="background:transparent;border:1.5px solid var(--border);color:var(--muted);border-radius:8px;padding:6px 10px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;flex-shrink:0;${holders.length ? 'opacity:.4;cursor:not-allowed' : ''}">Retire</button>
+        <button class="pot-retire-btn" data-pot-id="${pot.id}" disabled title="Move the plant out first" style="background:transparent;border:1.5px solid var(--border);color:var(--muted);border-radius:8px;padding:6px 10px;font-size:11px;font-weight:700;cursor:not-allowed;font-family:inherit;flex-shrink:0;opacity:.4">Retire</button>
       </div>`;
   };
 
@@ -3799,20 +3819,38 @@ function renderPotsModal() {
       <button class="pot-restore-btn" data-pot-id="${pot.id}" style="background:transparent;border:1.5px solid var(--green);color:var(--green);border-radius:8px;padding:5px 9px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;flex-shrink:0">↩ Restore</button>
     </div>`;
 
+  const sectionHeader = (emoji, label, count, color) => `
+    <div style="display:flex;align-items:baseline;gap:8px;padding:14px 0 6px;margin-top:6px;border-bottom:1px solid var(--border);margin-bottom:4px">
+      <span style="font-family:'Fraunces',serif;font-size:15px;font-weight:700;color:${color}">${emoji} ${label}</span>
+      <span style="font-size:11px;color:var(--muted);font-weight:600">${count}</span>
+    </div>`;
+
   document.getElementById('pots-body').innerHTML = `
     <div style="margin-bottom:14px">
       <div style="display:flex;gap:8px;margin-bottom:10px">
         <input type="text" id="new-pot-label" placeholder="New pot label (e.g. Terracotta 8-inch)" style="flex:1;padding:9px 11px;border-radius:10px;border:1.5px solid var(--border);font-size:13px;font-family:inherit;outline:none;background:white">
         <button id="new-pot-add-btn" style="background:var(--green);color:white;border:none;border-radius:10px;padding:9px 14px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap">+ Add</button>
       </div>
-      <div style="font-size:11px;color:var(--muted)">Added pots get today's date as their acquired date. Edit the date later by clicking the pot.</div>
+      <div style="font-size:11px;color:var(--muted)">Added pots get today's date as their acquired date. Click a pot to rename.</div>
     </div>
+
     ${active.length === 0
       ? `<div style="text-align:center;padding:32px 16px;color:var(--muted);font-size:13px;font-style:italic">No pots in inventory yet. Add one above, or it'll auto-populate when you add plants.</div>`
-      : `<div style="margin-bottom:18px">${active.map(potRow).join('')}</div>`}
+      : ''}
+
+    ${availablePotRows.length ? `
+      ${sectionHeader('✓', 'Available', availablePotRows.length, 'var(--good-fg)')}
+      <div style="margin-bottom:14px">${availablePotRows.map(availableRow).join('')}</div>
+    ` : ''}
+
+    ${inUsePotRows.length ? `
+      ${sectionHeader('🌱', 'In use', inUsePotRows.length, 'var(--text)')}
+      <div style="margin-bottom:14px">${inUsePotRows.map(inUseRow).join('')}</div>
+    ` : ''}
+
     ${retired.length ? `
-      <details style="margin-top:18px">
-        <summary style="cursor:pointer;font-size:12px;font-weight:700;color:var(--muted);padding:8px 0">Retired pots (${retired.length})</summary>
+      <details style="margin-top:8px">
+        <summary style="cursor:pointer;font-size:12px;font-weight:700;color:var(--muted);padding:10px 0">💀 Retired (${retired.length})</summary>
         <div>${retired.map(retiredRow).join('')}</div>
       </details>` : ''}
   `;
