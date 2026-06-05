@@ -9,7 +9,7 @@ Live at: https://plant-tracker-fawn.vercel.app/
 - **Frontend:** vanilla HTML/CSS/JS (`index.html`), no build step
 - **Data:** Supabase Postgres (`plants`, `plant_overrides`, `care_events`) + Storage (`plant-photos` bucket)
 - **Hosting:** Vercel (auto-deploys on push to `main`)
-- **AI:** Claude Sonnet 4.6 via `@anthropic-ai/sdk`, called from Vercel serverless functions (`api/analyze-photo.js`, `api/identify-plant.js`)
+- **AI:** Claude Sonnet 4.6 via `@anthropic-ai/sdk`, called from Vercel serverless functions (`api/analyze-photo.js`, `api/identify-plant.js`, `api/verify-plant.js`, `api/ask-plant.js`)
 - **Email:** Resend, called from `api/weekly-digest.js` on a Vercel cron
 - **PWA:** installable on iOS/Android home screen, offline shell via `service-worker.js`
 
@@ -31,8 +31,8 @@ Set these in Vercel → Project Settings → Environment Variables. Mark each fo
 
 | Name                | Where to get it                                                                                | Used by                                            |
 | ------------------- | ---------------------------------------------------------------------------------------------- | -------------------------------------------------- |
-| `ANTHROPIC_API_KEY` | https://console.anthropic.com → Settings → API Keys → Create Key                              | `analyze-photo.js`, `identify-plant.js`            |
-| `PLANT_PASSPHRASE`  | Same value as the literal string in your Supabase `plant_key_ok()` function (see migration 001) | `analyze-photo.js`, `identify-plant.js`, `weekly-digest.js` |
+| `ANTHROPIC_API_KEY` | https://console.anthropic.com → Settings → API Keys → Create Key                              | `analyze-photo.js`, `identify-plant.js`, `verify-plant.js`, `ask-plant.js` |
+| `PLANT_PASSPHRASE`  | Same value as the literal string in your Supabase `plant_key_ok()` function (see migration 001) | all api endpoints                                  |
 | `RESEND_API_KEY`    | https://resend.com → API Keys (free tier: 100 emails/day, 3000/month)                          | `weekly-digest.js`                                 |
 | `DIGEST_TO_EMAIL`   | Your inbox (e.g. `you@gmail.com`)                                                              | `weekly-digest.js`                                 |
 | `DIGEST_FROM_EMAIL` | A verified sender on Resend (`onboarding@resend.dev` for testing; `plants@yourdomain.com` once you verify a domain) | `weekly-digest.js`                                 |

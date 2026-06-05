@@ -413,6 +413,20 @@
   </div>
 </div>
 
+<!-- ── Verify-all modal: progress + review queue for batch verification ── -->
+<div id="verify-overlay" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:135;display:flex;align-items:center;justify-content:center;padding:14px">
+  <div id="verify-modal" style="background:var(--cream);border-radius:18px;padding:0 18px 18px;max-width:640px;width:100%;max-height:92vh;overflow-y:auto;font-family:inherit;box-shadow:0 12px 40px rgba(0,0,0,.4)">
+    <div style="position:sticky;top:0;background:var(--cream);padding-top:18px;padding-bottom:10px;display:flex;justify-content:space-between;align-items:flex-start;gap:10px;border-bottom:1px solid var(--border);margin-bottom:14px;z-index:1">
+      <div style="flex:1;min-width:0">
+        <div id="verify-title" style="font-family:'Fraunces',serif;font-size:18px;font-weight:700;line-height:1.2">🔬 Verify all plants</div>
+        <div id="verify-subtitle" style="font-size:11px;color:var(--muted);margin-top:3px"></div>
+      </div>
+      <button id="verify-close" style="background:var(--soft);border:none;border-radius:50%;width:30px;height:30px;font-size:18px;cursor:pointer;color:var(--muted);font-family:inherit;line-height:1;padding:0;flex-shrink:0">×</button>
+    </div>
+    <div id="verify-body"></div>
+  </div>
+</div>
+
 <!-- ── AI analysis result modal ── -->
 <div id="analysis-overlay" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:140;display:flex;align-items:center;justify-content:center;padding:18px">
   <div id="analysis-modal" style="background:var(--cream);border-radius:18px;padding:0 20px 20px;max-width:480px;width:100%;max-height:90vh;overflow-y:auto;font-family:inherit;box-shadow:0 12px 40px rgba(0,0,0,.4)">
@@ -3042,6 +3056,17 @@ function showStats() {
     </div>`
   );
 
+  // Verify-all CTA
+  const verifyable = active.filter(p => photoURLs[p.id]).length;
+  const estCost = (verifyable * 0.013).toFixed(2);
+  sections.push(
+    `<div style="margin-top:14px;padding:12px;background:linear-gradient(135deg,rgba(124,58,237,.08),rgba(109,40,217,.08));border:1px solid rgba(124,58,237,.25);border-radius:10px">
+      <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:4px">🔬 Verify garden against photos</div>
+      <div style="font-size:11px;color:var(--muted);line-height:1.5;margin-bottom:10px">Asks Claude to confirm each plant's ID and propose fills for any missing fields. ${verifyable} plant${verifyable === 1 ? '' : 's'} with photos · ~$${estCost} one-time · you review every change before it's applied.</div>
+      <button id="verify-start-btn" ${verifyable === 0 ? 'disabled' : ''} style="width:100%;padding:10px;background:linear-gradient(135deg,#7c3aed,#6d28d9);color:white;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;${verifyable === 0 ? 'opacity:.4;cursor:not-allowed' : ''}">Start verification sweep</button>
+    </div>`
+  );
+
   document.getElementById('stats-body').innerHTML = sections.join('');
   document.getElementById('stats-overlay').classList.remove('hidden');
 }
@@ -3054,6 +3079,508 @@ document.getElementById('stats-btn').addEventListener('click', showStats);
 document.getElementById('stats-close').addEventListener('click', closeStats);
 document.getElementById('stats-overlay').addEventListener('click', e => {
   if (e.target.id === 'stats-overlay') closeStats();
+});
+
+// "Verify all" lives inside stats body so the click handler is wired via delegation
+document.getElementById('stats-body').addEventListener('click', e => {
+  if (e.target.id === 'verify-start-btn') startVerifySweep();
+});
+
+// ── Verify-all sweep (Phase 5) ──────────────────────────────────────────────
+// Field metadata drives both the diff computation and the review-row render.
+// `dbCol` is the column name in Supabase; `big` fields require explicit
+// per-item approval (id-level changes the user explicitly asked to review).
+const VERIFY_FIELDS = [
+  { key: 'common_name',      proposedKey: 'proposed_common_name',      label: 'Common name',      dbCol: 'name',              big: true,  type: 'text',      table: 'plants' },
+  { key: 'scientific_name',  proposedKey: 'proposed_scientific_name',  label: 'Scientific name',  dbCol: 'sci',               big: true,  type: 'text',      table: 'plants' },
+  { key: 'toxic_to_dogs',    proposedKey: 'proposed_toxic_to_dogs',    label: 'Toxic to dogs',    dbCol: 'toxic',             big: true,  type: 'bool',      table: 'plants' },
+  { key: 'variety',          proposedKey: 'proposed_variety',          label: 'Variety',          dbCol: 'sub',               big: false, type: 'text',      table: 'plants' },
+  { key: 'seasonal_care',    proposedKey: 'proposed_seasonal_care',    label: 'Seasonal care',    dbCol: 'seasonal_care',     big: false, type: 'bool',      table: 'plants' },
+  { key: 'water_every_days', proposedKey: 'proposed_water_every_days', label: 'Water cadence',    dbCol: 'water_every_days',  big: false, type: 'int',       table: 'plants', unit: 'd' },
+  { key: 'feed_every_days',  proposedKey: 'proposed_feed_every_days',  label: 'Feed cadence',     dbCol: 'feed_every_days',   big: false, type: 'int',       table: 'plants', unit: 'd' },
+  { key: 'care_notes',       proposedKey: 'proposed_care_notes',       label: 'Care notes',       dbCol: 'care_notes',        big: false, type: 'text-long', table: 'plant_overrides' },
+];
+
+// Holds the in-progress sweep state and review queue so the apply handler can
+// read it without re-querying anything.
+let verifyState = null;
+
+function isFieldEmpty(val) {
+  if (val === null || val === undefined) return true;
+  if (typeof val === 'string' && val.trim() === '') return true;
+  return false;
+}
+
+// Returns true if current ≈ proposed for this field type (no diff worth showing).
+function valuesEqual(field, current, proposed) {
+  if (field.type === 'bool') return Boolean(current) === Boolean(proposed);
+  if (field.type === 'int') {
+    const a = current == null ? null : Number(current);
+    const b = proposed == null ? null : Number(proposed);
+    return a === b;
+  }
+  // text or text-long
+  return String(current || '').trim() === String(proposed || '').trim();
+}
+
+function formatFieldValue(field, val) {
+  if (isFieldEmpty(val)) return '<em style="color:var(--muted)">empty</em>';
+  if (field.type === 'bool') return val ? '<strong>Yes</strong>' : 'No';
+  if (field.type === 'int') return `<strong>${val}</strong>${field.unit ? ' ' + field.unit : ''}`;
+  const text = String(val);
+  if (field.type === 'text-long' && text.length > 140) {
+    return `<span style="font-size:11.5px;line-height:1.5">${escapeHtml(text)}</span>`;
+  }
+  return escapeHtml(text);
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+}
+
+// Compute every per-(plant,field) diff from a verify result.
+// Returns array of: { plantId, plantName, field, current, proposed, isFill, isBig, idMatches, idReasoning }
+function buildDiffs(result) {
+  const out = [];
+  const plant = PLANTS.find(p => p.id === result.plantId);
+  const plantName = plant ? (plant.name + (plant.sub ? ' · ' + plant.sub : '')) : result.plantId;
+  for (const f of VERIFY_FIELDS) {
+    const cur = result.current[f.key];
+    const prop = result.proposed[f.proposedKey];
+    if (valuesEqual(f, cur, prop)) continue;
+    out.push({
+      plantId: result.plantId,
+      plantName,
+      field: f,
+      current: cur,
+      proposed: prop,
+      isFill: isFieldEmpty(cur) && !isFieldEmpty(prop),
+      isBig: f.big,
+      idMatches: result.proposed.id_matches,
+      idConfidence: result.proposed.id_confidence,
+      idReasoning: result.proposed.id_reasoning,
+      visibleConcerns: result.proposed.visible_concerns,
+    });
+  }
+  return out;
+}
+
+async function startVerifySweep() {
+  // Passphrase first
+  if (!plantKey) {
+    const ok = await promptPassphrase('Enter your passphrase to use AI verification.');
+    if (!ok) return;
+  }
+
+  const targets = PLANTS.filter(p => !p.archived_at && photoURLs[p.id]);
+  if (targets.length === 0) {
+    alert('No plants with photos to verify.');
+    return;
+  }
+
+  if (!confirm(`Verify ${targets.length} plants against their photos? Estimated cost ~$${(targets.length * 0.013).toFixed(2)}. You'll review every proposed change before anything is applied.`)) {
+    return;
+  }
+
+  closeStats();
+
+  verifyState = {
+    targets,
+    results: [],          // raw verify responses
+    errors: [],           // { plantId, plantName, message }
+    skipped: [],          // { plantId, plantName, reason }
+    aborted: false,
+  };
+
+  document.getElementById('verify-overlay').classList.remove('hidden');
+  document.body.style.overflow = 'hidden';
+  document.getElementById('verify-title').textContent = '🔬 Verifying garden…';
+  renderVerifyProgress();
+
+  for (let i = 0; i < targets.length; i++) {
+    if (verifyState.aborted) break;
+    const p = targets[i];
+    document.getElementById('verify-subtitle').textContent =
+      `Plant ${i + 1} of ${targets.length} · ${p.name}${p.sub ? ' · ' + p.sub : ''}`;
+    document.getElementById('verify-body').querySelector('#verify-progress-current').textContent =
+      `${p.name}${p.sub ? ' · ' + p.sub : ''}`;
+    document.getElementById('verify-body').querySelector('#verify-progress-bar').style.width =
+      ((i / targets.length) * 100) + '%';
+
+    try {
+      const resp = await fetch('/api/verify-plant', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-plant-key': plantKey },
+        body: JSON.stringify({ plantId: p.id }),
+      });
+      const body = await resp.json();
+      if (resp.status === 409 && body.error === 'no_photo') {
+        verifyState.skipped.push({ plantId: p.id, plantName: p.name, reason: 'no photo' });
+      } else if (!resp.ok) {
+        verifyState.errors.push({ plantId: p.id, plantName: p.name, message: body.message || body.error || ('HTTP ' + resp.status) });
+      } else {
+        verifyState.results.push(body);
+      }
+    } catch (err) {
+      verifyState.errors.push({ plantId: p.id, plantName: p.name, message: err.message });
+    }
+  }
+
+  if (verifyState.aborted) {
+    document.getElementById('verify-overlay').classList.add('hidden');
+    document.body.style.overflow = '';
+    verifyState = null;
+    return;
+  }
+
+  document.getElementById('verify-title').textContent = '🔬 Verification complete';
+  document.getElementById('verify-subtitle').textContent =
+    `${verifyState.results.length} verified · ${verifyState.errors.length} errors · ${verifyState.skipped.length} skipped`;
+  renderVerifyReview();
+}
+
+function renderVerifyProgress() {
+  document.getElementById('verify-body').innerHTML = `
+    <div style="padding:24px 8px 12px;text-align:center">
+      <div class="spin" style="margin:0 auto 14px;width:32px;height:32px;border-width:3px"></div>
+      <div style="font-size:14px;font-weight:700;margin-bottom:4px" id="verify-progress-current">Starting…</div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:14px">Each plant takes ~7-10s</div>
+      <div style="background:var(--soft);border-radius:6px;height:8px;overflow:hidden;max-width:280px;margin:0 auto">
+        <div id="verify-progress-bar" style="background:linear-gradient(135deg,#7c3aed,#6d28d9);height:100%;width:0%;transition:width .3s"></div>
+      </div>
+      <button id="verify-abort-btn" style="margin-top:18px;padding:8px 16px;background:none;border:1.5px solid var(--border);border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;color:var(--muted)">Cancel sweep</button>
+    </div>
+  `;
+  document.getElementById('verify-abort-btn').addEventListener('click', () => {
+    if (verifyState) verifyState.aborted = true;
+  });
+}
+
+function renderVerifyReview() {
+  // Flatten all diffs across all plants
+  const allDiffs = verifyState.results.flatMap(buildDiffs);
+  const confirmedCount = verifyState.results.length - new Set(allDiffs.map(d => d.plantId)).size;
+  const concerns = verifyState.results
+    .filter(r => r.proposed.visible_concerns && r.proposed.visible_concerns.trim())
+    .map(r => ({
+      plantId: r.plantId,
+      plantName: (PLANTS.find(p => p.id === r.plantId)?.name || r.plantId),
+      text: r.proposed.visible_concerns.trim(),
+    }));
+
+  // Each diff has a checkbox keyed by `${plantId}:${fieldKey}`.
+  // Default-on for fills and non-big changes; default-off for big changes.
+  verifyState.approved = new Set(
+    allDiffs.filter(d => !d.isBig).map(d => `${d.plantId}:${d.field.key}`)
+  );
+  verifyState.allDiffs = allDiffs;
+  verifyState.concerns = concerns;
+
+  const bigChanges = allDiffs.filter(d => d.isBig);
+  const fills = allDiffs.filter(d => !d.isBig && d.isFill);
+  const changes = allDiffs.filter(d => !d.isBig && !d.isFill);
+
+  // Summary banner
+  const summary = `
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:14px">
+      <div style="background:var(--good-bg);color:var(--good-fg);border-radius:8px;padding:9px 6px;text-align:center">
+        <div style="font-family:'Fraunces',serif;font-size:18px;font-weight:700;line-height:1">${confirmedCount}</div>
+        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;margin-top:2px">Confirmed</div>
+      </div>
+      <div style="background:rgba(124,58,237,.12);color:#6d28d9;border-radius:8px;padding:9px 6px;text-align:center">
+        <div style="font-family:'Fraunces',serif;font-size:18px;font-weight:700;line-height:1">${fills.length}</div>
+        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;margin-top:2px">Fills</div>
+      </div>
+      <div style="background:var(--warn-bg);color:var(--warn-fg);border-radius:8px;padding:9px 6px;text-align:center">
+        <div style="font-family:'Fraunces',serif;font-size:18px;font-weight:700;line-height:1">${changes.length}</div>
+        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;margin-top:2px">Changes</div>
+      </div>
+      <div style="background:${bigChanges.length ? 'var(--danger-bg)' : 'var(--soft)'};color:${bigChanges.length ? 'var(--danger-fg)' : 'var(--muted)'};border-radius:8px;padding:9px 6px;text-align:center">
+        <div style="font-family:'Fraunces',serif;font-size:18px;font-weight:700;line-height:1">${bigChanges.length}</div>
+        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;margin-top:2px">⚠ Big</div>
+      </div>
+    </div>
+  `;
+
+  // Section renderer — `defaultOn` controls initial checkbox state for the section's items
+  const renderSection = (title, subtitle, items, opts = {}) => {
+    if (!items.length) return '';
+    const headerColor = opts.danger ? 'var(--danger-fg)' : 'var(--text)';
+    const bulkBtn = opts.bulkBtn
+      ? `<div style="display:flex;gap:8px;margin-bottom:8px">
+           <button class="verify-bulk-btn" data-action="approve" data-section="${opts.sectionId}" style="flex:1;padding:6px 10px;background:var(--green);color:white;border:none;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit">✓ Approve all</button>
+           <button class="verify-bulk-btn" data-action="reject" data-section="${opts.sectionId}" style="flex:1;padding:6px 10px;background:none;border:1.5px solid var(--border);color:var(--muted);border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit">✕ Reject all</button>
+         </div>`
+      : '';
+
+    const rows = items.map(d => {
+      const key = `${d.plantId}:${d.field.key}`;
+      const checked = verifyState.approved.has(key);
+      const plant = PLANTS.find(p => p.id === d.plantId);
+      const photoSrc = photoURLs[d.plantId] || '';
+      const idBadge = d.isBig && !d.idMatches
+        ? `<div style="background:var(--danger-bg);color:var(--danger-fg);font-size:10px;font-weight:700;padding:3px 7px;border-radius:6px;margin-bottom:4px;display:inline-block">⚠ ID mismatch (${d.idConfidence})</div><div style="font-size:11px;color:var(--muted);line-height:1.4;margin-bottom:6px">${escapeHtml(d.idReasoning || '')}</div>`
+        : '';
+      return `
+        <label class="verify-row" data-key="${key}" style="display:flex;gap:10px;padding:10px;background:${checked ? 'rgba(45,90,39,.06)' : 'var(--soft)'};border-radius:8px;margin-bottom:6px;cursor:pointer;align-items:flex-start;border:1.5px solid ${checked ? 'var(--green)' : 'transparent'};transition:all .15s">
+          <input type="checkbox" class="verify-cb" data-key="${key}" ${checked ? 'checked' : ''} style="margin-top:2px;flex-shrink:0;width:18px;height:18px;cursor:pointer;accent-color:var(--green)">
+          ${photoSrc ? `<img src="${photoSrc}" style="width:44px;height:44px;border-radius:6px;object-fit:cover;flex-shrink:0">` : ''}
+          <div style="flex:1;min-width:0">
+            ${idBadge}
+            <div style="font-size:12px;font-weight:700;line-height:1.2"><a href="#plant=${d.plantId}" data-plant-link="${d.plantId}" style="color:var(--text);text-decoration:none;border-bottom:1px dotted var(--muted)">${escapeHtml(d.plantName)}</a></div>
+            <div style="font-size:11px;color:var(--muted);margin-top:2px">${d.field.label}</div>
+            <div style="font-size:12px;margin-top:5px;line-height:1.45">
+              <div style="color:var(--muted);text-decoration:line-through;text-decoration-color:rgba(0,0,0,.25)">${formatFieldValue(d.field, d.current)}</div>
+              <div style="color:var(--text);margin-top:2px">→ ${formatFieldValue(d.field, d.proposed)}</div>
+            </div>
+          </div>
+        </label>`;
+    }).join('');
+
+    return `
+      <div style="margin-bottom:18px">
+        <div style="font-size:13px;font-weight:700;color:${headerColor};margin-bottom:2px">${title}</div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:8px">${subtitle}</div>
+        ${bulkBtn}
+        ${rows}
+      </div>`;
+  };
+
+  let html = summary;
+
+  if (bigChanges.length) {
+    html += renderSection(
+      '⚠ Big changes — review carefully',
+      'Species, scientific name, and toxicity changes. Each must be approved individually.',
+      bigChanges,
+      { sectionId: 'big', danger: true }
+    );
+  }
+
+  if (changes.length) {
+    html += renderSection(
+      'Proposed changes',
+      'Cadences, variety, seasonal flag, or care notes that differ from what\'s recorded. Pre-approved — uncheck anything you disagree with.',
+      changes,
+      { sectionId: 'changes', bulkBtn: true }
+    );
+  }
+
+  if (fills.length) {
+    html += renderSection(
+      'Missing data — fills',
+      'Fields that were blank. Pre-approved — purely additive, nothing gets overwritten.',
+      fills,
+      { sectionId: 'fills', bulkBtn: true }
+    );
+  }
+
+  if (concerns.length) {
+    html += `
+      <div style="margin-bottom:18px;padding:12px;background:var(--warn-bg);border-radius:8px">
+        <div style="font-size:13px;font-weight:700;color:var(--warn-fg);margin-bottom:6px">👀 Visible concerns spotted in photos</div>
+        ${concerns.map(c => `<div style="font-size:12px;line-height:1.5;margin-bottom:4px"><a href="#plant=${c.plantId}" data-plant-link="${c.plantId}" style="color:var(--warn-fg);font-weight:700;text-decoration:none;border-bottom:1px dotted var(--warn-fg)">${escapeHtml(c.plantName)}</a> — ${escapeHtml(c.text)}</div>`).join('')}
+      </div>`;
+  }
+
+  if (verifyState.errors.length) {
+    html += `
+      <div style="margin-bottom:18px;padding:10px;background:var(--danger-bg);border-radius:8px;font-size:11px;color:var(--danger-fg)">
+        <div style="font-weight:700;margin-bottom:4px">${verifyState.errors.length} error${verifyState.errors.length === 1 ? '' : 's'}</div>
+        ${verifyState.errors.slice(0, 5).map(e => `<div>${escapeHtml(e.plantName)}: ${escapeHtml(e.message)}</div>`).join('')}
+        ${verifyState.errors.length > 5 ? `<div>… and ${verifyState.errors.length - 5} more</div>` : ''}
+      </div>`;
+  }
+
+  if (verifyState.skipped.length) {
+    html += `
+      <div style="margin-bottom:18px;font-size:11px;color:var(--muted)">
+        Skipped ${verifyState.skipped.length}: ${verifyState.skipped.slice(0, 8).map(s => escapeHtml(s.plantName)).join(', ')}${verifyState.skipped.length > 8 ? ' …' : ''} <span style="opacity:.6">(no photo)</span>
+      </div>`;
+  }
+
+  // Sticky apply bar
+  html += `
+    <div style="position:sticky;bottom:-18px;background:var(--cream);padding:12px 0 0;border-top:1px solid var(--border);margin:0 -2px;display:flex;gap:8px">
+      <button id="verify-cancel-btn" style="flex:1;padding:11px;background:none;border:1.5px solid var(--border);border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;color:var(--muted)">Discard all</button>
+      <button id="verify-apply-btn" style="flex:2;padding:11px;background:var(--green);color:white;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">Apply <span id="verify-apply-count">${verifyState.approved.size}</span> change${verifyState.approved.size === 1 ? '' : 's'}</button>
+    </div>`;
+
+  document.getElementById('verify-body').innerHTML = html;
+
+  // Wire checkbox toggles — they restyle the row and update the apply count
+  document.getElementById('verify-body').querySelectorAll('.verify-cb').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const key = cb.dataset.key;
+      if (cb.checked) verifyState.approved.add(key);
+      else verifyState.approved.delete(key);
+      const row = cb.closest('.verify-row');
+      if (row) {
+        row.style.background = cb.checked ? 'rgba(45,90,39,.06)' : 'var(--soft)';
+        row.style.borderColor = cb.checked ? 'var(--green)' : 'transparent';
+      }
+      updateVerifyApplyCount();
+    });
+  });
+
+  // Bulk approve/reject — limits to the section that issued the click
+  document.getElementById('verify-body').querySelectorAll('.verify-bulk-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const sectionId = btn.dataset.section;
+      const sectionItems = sectionId === 'big' ? bigChanges
+                        : sectionId === 'changes' ? changes
+                        : sectionId === 'fills' ? fills : [];
+      const approve = btn.dataset.action === 'approve';
+      sectionItems.forEach(d => {
+        const key = `${d.plantId}:${d.field.key}`;
+        if (approve) verifyState.approved.add(key);
+        else verifyState.approved.delete(key);
+        const cb = document.querySelector(`.verify-cb[data-key="${CSS.escape(key)}"]`);
+        if (cb) {
+          cb.checked = approve;
+          const row = cb.closest('.verify-row');
+          if (row) {
+            row.style.background = approve ? 'rgba(45,90,39,.06)' : 'var(--soft)';
+            row.style.borderColor = approve ? 'var(--green)' : 'transparent';
+          }
+        }
+      });
+      updateVerifyApplyCount();
+    });
+  });
+
+  // Plant deep-links — open the detail modal directly
+  document.getElementById('verify-body').querySelectorAll('[data-plant-link]').forEach(a => {
+    a.addEventListener('click', e => {
+      e.preventDefault();
+      closeVerify();
+      openModal(a.dataset.plantLink);
+    });
+  });
+
+  document.getElementById('verify-cancel-btn').addEventListener('click', () => {
+    if (verifyState.approved.size > 0 && !confirm('Discard all proposed changes?')) return;
+    closeVerify();
+  });
+  document.getElementById('verify-apply-btn').addEventListener('click', applyVerifyChanges);
+}
+
+function updateVerifyApplyCount() {
+  const n = verifyState.approved.size;
+  const span = document.getElementById('verify-apply-count');
+  if (span) span.textContent = n;
+  const btn = document.getElementById('verify-apply-btn');
+  if (btn) {
+    btn.innerHTML = `Apply <span id="verify-apply-count">${n}</span> change${n === 1 ? '' : 's'}`;
+    btn.disabled = n === 0;
+    btn.style.opacity = n === 0 ? '.5' : '1';
+  }
+}
+
+async function applyVerifyChanges() {
+  const approved = verifyState.allDiffs.filter(d => verifyState.approved.has(`${d.plantId}:${d.field.key}`));
+  if (approved.length === 0) return;
+
+  const btn = document.getElementById('verify-apply-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spin"></span> Applying…';
+
+  // Group diffs by plant + table so we can do one update per plant per table
+  const byPlant = {};   // plantId -> { plants: {col: val}, plant_overrides: {col: val} }
+  for (const d of approved) {
+    const table = d.field.table;
+    if (!byPlant[d.plantId]) byPlant[d.plantId] = { plants: {}, plant_overrides: {} };
+    let val = d.proposed;
+    if (d.field.type === 'text' || d.field.type === 'text-long') {
+      val = String(val || '').trim() || null;
+    } else if (d.field.type === 'int') {
+      val = val ? Number(val) : null;
+    } else if (d.field.type === 'bool') {
+      val = !!val;
+    }
+    byPlant[d.plantId][table][d.field.dbCol] = val;
+  }
+
+  const errors = [];
+  let appliedPlantsCount = 0;
+  let appliedNotesCount = 0;
+
+  for (const [plantId, tables] of Object.entries(byPlant)) {
+    // plants table update
+    if (Object.keys(tables.plants).length) {
+      const row = { ...tables.plants };
+      // seasonal_care column may not exist in older schemas
+      if ('seasonal_care' in row && !hasSeasonalCol) delete row.seasonal_care;
+      const res = await withKey('verify update plant', () =>
+        sb.from('plants').update(row).eq('id', plantId).select(),
+        { expectRows: true }
+      );
+      if (res.error) errors.push(`${plantId} plants: ${res.error.message}`);
+      else appliedPlantsCount++;
+    }
+    // plant_overrides care_notes upsert — preserve other override fields
+    if (Object.keys(tables.plant_overrides).length) {
+      const existing = overrides[plantId] || {};
+      const ovRow = {
+        id: plantId,
+        status: existing.status ?? null,
+        notes: existing.notes ?? null,
+        health: existing.health ?? null,
+        photo_ts: existing.photo_ts ?? null,
+        care_notes: existing.care_notes ?? null,
+        ...tables.plant_overrides,
+        updated_at: new Date().toISOString(),
+      };
+      const res = await withKey('verify upsert care_notes', () =>
+        sb.from('plant_overrides').upsert(ovRow).select(),
+        { expectRows: true }
+      );
+      if (res.error) errors.push(`${plantId} care_notes: ${res.error.message}`);
+      else appliedNotesCount++;
+    }
+  }
+
+  await loadData();
+
+  if (errors.length) {
+    alert(`Applied ${appliedPlantsCount + appliedNotesCount} updates, but hit ${errors.length} errors:\n\n` + errors.slice(0, 6).join('\n'));
+  } else {
+    // Brief toast-style confirmation in the modal before closing
+    document.getElementById('verify-body').innerHTML = `
+      <div style="padding:36px 12px;text-align:center">
+        <div style="font-size:48px;margin-bottom:10px">✓</div>
+        <div style="font-family:'Fraunces',serif;font-size:18px;font-weight:700;margin-bottom:6px">Applied ${approved.length} change${approved.length === 1 ? '' : 's'}</div>
+        <div style="font-size:12px;color:var(--muted)">${Object.keys(byPlant).length} plant${Object.keys(byPlant).length === 1 ? '' : 's'} updated</div>
+      </div>`;
+    setTimeout(closeVerify, 1500);
+  }
+}
+
+function closeVerify() {
+  document.getElementById('verify-overlay').classList.add('hidden');
+  document.body.style.overflow = '';
+  verifyState = null;
+}
+
+document.getElementById('verify-close').addEventListener('click', () => {
+  if (verifyState && verifyState.results.length > 0 && verifyState.approved && verifyState.approved.size > 0) {
+    if (!confirm('Discard all proposed changes?')) return;
+  }
+  if (verifyState && verifyState.targets && verifyState.results.length < verifyState.targets.length) {
+    verifyState.aborted = true;
+  }
+  closeVerify();
+});
+document.getElementById('verify-overlay').addEventListener('click', e => {
+  if (e.target.id === 'verify-overlay') {
+    if (verifyState && verifyState.results.length > 0 && verifyState.approved && verifyState.approved.size > 0) {
+      if (!confirm('Discard all proposed changes?')) return;
+    }
+    if (verifyState && verifyState.targets && verifyState.results.length < verifyState.targets.length) {
+      verifyState.aborted = true;
+    }
+    closeVerify();
+  }
 });
 
 document.getElementById('close-btn').addEventListener('click', closeModal);
