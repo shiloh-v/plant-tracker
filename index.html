@@ -175,6 +175,7 @@
     </div>
     <input type="search" id="search" placeholder="Search by name, genus, or area…" autocomplete="off">
     <div id="tabs">
+      <button class="tab" data-tab="today">📋 Today<span id="today-count" style="display:none;margin-left:5px;background:var(--green);color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:8px"></span></button>
       <button class="tab active" data-tab="all">All</button>
       <button class="tab" data-tab="indoor">Indoor</button>
       <button class="tab" data-tab="outdoor">Outdoor</button>
@@ -1012,6 +1013,54 @@ function renderAttentionBadge() {
   if (lostBadge) lostBadge.textContent = lostN;
 }
 
+// "Things to do today" count — drives the green pill on the Today tab.
+// Sum of: overdue water + overdue feed + unresolved AI concerns + critical/struggling.
+// Bounded by Math.min so it doesn't double-count a single plant 4 different ways.
+function computeTodayTaskCount() {
+  const active = PLANTS.filter(isActive);
+  const plantsWithTasks = new Set();
+  active.forEach(p => {
+    if (p.water_every_days) {
+      const s = careStatus(p, 'water', p.water_every_days);
+      if (s.dueIn !== null && s.dueIn <= 0) plantsWithTasks.add(p.id);
+    }
+    if (p.feed_every_days) {
+      const s = careStatus(p, 'feed', p.feed_every_days);
+      if (s.dueIn !== null && s.dueIn <= 0) plantsWithTasks.add(p.id);
+    }
+    const h = plantHealth(p);
+    if (h === 'critical' || h === 'struggling') plantsWithTasks.add(p.id);
+    if (unresolvedConcernsForPlant(p.id).length) plantsWithTasks.add(p.id);
+  });
+  return plantsWithTasks.size;
+}
+
+function renderTodayBadge() {
+  const badge = document.getElementById('today-count');
+  if (!badge) return;
+  const n = computeTodayTaskCount();
+  if (n > 0) { badge.textContent = n; badge.style.display = 'inline-block'; }
+  else       { badge.style.display = 'none'; }
+}
+
+// An AI concern is "unresolved" for a plant if its newest "AI noticed:" inspect
+// event is more recent than its newest "✓ Addressed" inspect event. Per-plant
+// grouping (one badge per plant, not per concern) — see Today renderer for UI.
+function unresolvedConcernsForPlant(plantId) {
+  const events = careEvents[plantId] || [];
+  const aiConcerns = events.filter(e =>
+    e.kind === 'inspect' && (e.notes || '').startsWith('AI noticed:')
+  );
+  if (aiConcerns.length === 0) return [];
+  const addressedTs = events
+    .filter(e => e.kind === 'inspect' && (e.notes || '').startsWith('✓ Addressed'))
+    .map(e => new Date(e.occurred_at).getTime());
+  const latestAddressed = addressedTs.length ? Math.max(...addressedTs) : 0;
+  return aiConcerns
+    .filter(c => new Date(c.occurred_at).getTime() > latestAddressed)
+    .sort((a, b) => new Date(b.occurred_at) - new Date(a.occurred_at));  // newest first
+}
+
 // Plants whose water cadence is set AND last watered is past the cadence (or never)
 function isWaterOverdue(p) {
   if (!isActive(p)) return false;
@@ -1071,6 +1120,19 @@ function renderAnalyzeStaleBtn(visiblePlants) {
 function renderGrid() {
   renderLocPills();
   renderAttentionBadge();
+  renderTodayBadge();
+
+  // Today tab gets a completely different render — dashboard layout, not a card grid.
+  if (tab === 'today') {
+    document.getElementById('count-label').textContent = '';
+    const analyzeBtn = document.getElementById('analyze-stale-btn');
+    if (analyzeBtn) analyzeBtn.style.display = 'none';
+    const logAllBtn = document.getElementById('log-all-overdue-btn');
+    if (logAllBtn) logAllBtn.style.display = 'none';
+    renderToday();
+    return;
+  }
+
   const plants = getFilteredPlants();
   renderLogAllOverdueBtn(plants);
   renderAnalyzeStaleBtn(plants);
@@ -1104,6 +1166,261 @@ function renderGrid() {
         </div>
       </div>`;
   }).join('');
+}
+
+// ── Today dashboard ─────────────────────────────────────────────────────────
+// One-screen view for daily check-in: what needs water/feed, unresolved AI
+// concerns, struggling plants, stale photos, and seasonal reminders. Each
+// action is a one-tap button that logs the appropriate care event directly.
+function renderToday() {
+  renderTodayBadge();   // keep tab badge in sync after any in-place re-render
+  renderAttentionBadge();
+  const active = PLANTS.filter(isActive);
+  const grid = document.getElementById('grid');
+
+  // Section buckets
+  const waterDue = active
+    .filter(p => p.water_every_days)
+    .map(p => ({ p, status: careStatus(p, 'water', p.water_every_days) }))
+    .filter(x => x.status.dueIn !== null && x.status.dueIn <= 0)
+    .sort((a, b) => a.status.dueIn - b.status.dueIn);
+
+  const feedDue = active
+    .filter(p => p.feed_every_days)
+    .map(p => ({ p, status: careStatus(p, 'feed', p.feed_every_days) }))
+    .filter(x => x.status.dueIn !== null && x.status.dueIn <= 0)
+    .sort((a, b) => a.status.dueIn - b.status.dueIn);
+
+  const concernPlants = active
+    .map(p => ({ p, concerns: unresolvedConcernsForPlant(p.id) }))
+    .filter(x => x.concerns.length > 0);
+
+  const struggling = active
+    .filter(p => ['critical', 'struggling'].includes(plantHealth(p)))
+    .sort((a, b) => {
+      const order = { critical: 0, struggling: 1 };
+      return (order[plantHealth(a)] ?? 9) - (order[plantHealth(b)] ?? 9);
+    });
+
+  const stalePhotos = active
+    .filter(p => {
+      const h = photoHistory[p.id];
+      if (!h || h.length === 0) return false;
+      const days = (Date.now() - h[0].ts) / 86400000;
+      return days >= 14;
+    })
+    .map(p => ({ p, days: Math.floor((Date.now() - photoHistory[p.id][0].ts) / 86400000) }))
+    .sort((a, b) => b.days - a.days);
+
+  // Seasonal: nudge in fall (Sep-Nov) and early spring (Feb-Mar) for plants
+  // with cadence shifts. Outside those windows, this section stays empty.
+  const month = new Date().getMonth();  // 0-11
+  const inSeasonalWindow = (month >= 8 && month <= 10) || (month >= 1 && month <= 2);
+  const seasonal = inSeasonalWindow ? active.filter(p => p.seasonal_care) : [];
+
+  // ── Build HTML ────────────────────────────────────────────────────────────
+  const tile = (label, n, color, bg) => `
+    <div style="background:${bg};color:${color};border-radius:10px;padding:10px 8px;text-align:center">
+      <div style="font-family:'Fraunces',serif;font-size:22px;font-weight:700;line-height:1">${n}</div>
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;margin-top:3px">${label}</div>
+    </div>`;
+
+  const tiles = `
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:16px">
+      ${tile('💧 Water', waterDue.length, '#0b4a8f', '#dbeafe')}
+      ${tile('🍴 Feed', feedDue.length, '#7c3a00', '#fde9d3')}
+      ${tile('👀 Concerns', concernPlants.length, 'var(--warn-fg)', 'var(--warn-bg)')}
+      ${tile('⚠ Critical', struggling.length, 'var(--danger-fg)', 'var(--danger-bg)')}
+    </div>`;
+
+  const taskRow = (p, primary, secondary) => {
+    const url = photoURLs[p.id] || '';
+    return `
+      <div class="today-row" data-plant="${p.id}" style="display:flex;gap:10px;padding:10px;background:var(--soft);border-radius:10px;margin-bottom:6px;align-items:center;cursor:pointer">
+        ${url ? `<img src="${url}" style="width:46px;height:46px;border-radius:8px;object-fit:cover;flex-shrink:0">` : '<div style="width:46px;height:46px;border-radius:8px;background:var(--border);display:flex;align-items:center;justify-content:center;flex-shrink:0">🌱</div>'}
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;font-weight:700;line-height:1.2">${escapeHtml(p.name)}${p.sub ? ' <span style="color:var(--muted);font-weight:500;font-size:12px">· ' + escapeHtml(p.sub) + '</span>' : ''}</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px">${escapeHtml(p.loc)}</div>
+          ${secondary ? `<div style="font-size:11px;color:var(--text);margin-top:3px">${secondary}</div>` : ''}
+        </div>
+        ${primary || ''}
+      </div>`;
+  };
+
+  const logBtn = (plantId, kind, label) => `
+    <button class="today-log-btn" data-plant="${plantId}" data-kind="${kind}" style="background:var(--green);color:white;border:none;border-radius:8px;padding:7px 12px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;flex-shrink:0">${label}</button>`;
+
+  const sectionWrap = (title, subtitle, body, opts = {}) => `
+    <div style="margin-bottom:18px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:2px">
+        <div style="font-size:14px;font-weight:700;color:${opts.color || 'var(--text)'}">${title}</div>
+        ${opts.action || ''}
+      </div>
+      ${subtitle ? `<div style="font-size:11px;color:var(--muted);margin-bottom:8px">${subtitle}</div>` : ''}
+      ${body}
+    </div>`;
+
+  let html = `<div style="font-family:'Fraunces',serif;font-size:22px;font-weight:700;margin-bottom:2px">📋 Today</div>
+              <div style="font-size:11px;color:var(--muted);margin-bottom:14px">${new Date().toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric' })}</div>`;
+  html += tiles;
+
+  // 💧 Water today
+  if (waterDue.length) {
+    const overdueDays = d => d === 0 ? 'due today' : `${-d}d overdue`;
+    const bulkBtn = waterDue.length > 1
+      ? `<button id="today-water-all" style="background:var(--green);color:white;border:none;border-radius:6px;padding:4px 10px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit">Log all ${waterDue.length}</button>`
+      : '';
+    html += sectionWrap('💧 Water today', null,
+      waterDue.map(({ p, status }) =>
+        taskRow(p, logBtn(p.id, 'water', '💧 Log'),
+          `<span style="${status.dueIn < 0 ? 'color:var(--danger-fg);font-weight:600' : ''}">${overdueDays(status.dueIn)}</span>`)
+      ).join(''),
+      { action: bulkBtn }
+    );
+  }
+
+  // 🍴 Feed today
+  if (feedDue.length) {
+    const overdueDays = d => d === 0 ? 'due today' : `${-d}d overdue`;
+    const bulkBtn = feedDue.length > 1
+      ? `<button id="today-feed-all" style="background:var(--green);color:white;border:none;border-radius:6px;padding:4px 10px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit">Log all ${feedDue.length}</button>`
+      : '';
+    html += sectionWrap('🍴 Feed today', null,
+      feedDue.map(({ p, status }) =>
+        taskRow(p, logBtn(p.id, 'feed', '🍴 Log'),
+          `<span style="${status.dueIn < 0 ? 'color:var(--danger-fg);font-weight:600' : ''}">${overdueDays(status.dueIn)}</span>`)
+      ).join(''),
+      { action: bulkBtn }
+    );
+  }
+
+  // 👀 Concerns to address
+  if (concernPlants.length) {
+    html += sectionWrap(
+      '👀 Concerns to address',
+      'AI-spotted issues that haven\'t been marked addressed. Tap the row to see the plant; tap ✓ when handled.',
+      concernPlants.map(({ p, concerns }) => {
+        const latest = concerns[0];
+        const ago = Math.floor((Date.now() - new Date(latest.occurred_at).getTime()) / 86400000);
+        const agoLabel = ago === 0 ? 'today' : ago === 1 ? '1d ago' : `${ago}d ago`;
+        const text = (latest.notes || '').replace(/^AI noticed:\s*/i, '');
+        const concernBlurb = `<span style="color:var(--warn-fg)">${escapeHtml(text)}</span> <span style="color:var(--muted)">· ${agoLabel}${concerns.length > 1 ? ' + ' + (concerns.length - 1) + ' more' : ''}</span>`;
+        const addressBtn = `<button class="today-address-btn" data-plant="${p.id}" style="background:var(--warn-fg);color:white;border:none;border-radius:8px;padding:7px 12px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;flex-shrink:0">✓ Mark addressed</button>`;
+        return taskRow(p, addressBtn, concernBlurb);
+      }).join(''),
+      { color: 'var(--warn-fg)' }
+    );
+  }
+
+  // ⚠ Critical / struggling
+  if (struggling.length) {
+    html += sectionWrap(
+      '⚠ Critical / struggling',
+      'Tap a plant to review and follow up.',
+      struggling.map(p => {
+        const h = plantHealth(p);
+        const hm = healthMeta(h);
+        const badge = `<span class="health-badge" style="color:${hm.color};background:${hm.bg}">${hm.emoji ? hm.emoji + ' ' : ''}${hm.label}</span>`;
+        return taskRow(p, '', badge);
+      }).join(''),
+      { color: 'var(--danger-fg)' }
+    );
+  }
+
+  // 📷 Stale photos
+  if (stalePhotos.length) {
+    html += sectionWrap(
+      '📷 Stale photos',
+      `Plants you haven't photographed in 14+ days — a fresh photo helps AI track progress.`,
+      stalePhotos.slice(0, 8).map(({ p, days }) =>
+        taskRow(p, '', `<span style="color:var(--muted)">Last photo ${days}d ago</span>`)
+      ).join('') + (stalePhotos.length > 8 ? `<div style="font-size:11px;color:var(--muted);text-align:center;margin-top:4px">+ ${stalePhotos.length - 8} more</div>` : '')
+    );
+  }
+
+  // 🍂 Seasonal reminders (only in fall + early spring)
+  if (seasonal.length) {
+    const season = month >= 8 && month <= 10 ? 'fall' : 'spring';
+    const tip = season === 'fall'
+      ? 'Reduce watering for dormancy; bring frost-sensitive plants indoors.'
+      : 'Spring is here — gradually increase watering, resume feeding, repot if rootbound.';
+    html += sectionWrap(
+      '🍂 Seasonal reminders',
+      tip,
+      seasonal.slice(0, 8).map(p => taskRow(p, '', '')).join('') +
+      (seasonal.length > 8 ? `<div style="font-size:11px;color:var(--muted);text-align:center;margin-top:4px">+ ${seasonal.length - 8} more</div>` : '')
+    );
+  }
+
+  // Empty state
+  const totalTasks = waterDue.length + feedDue.length + concernPlants.length + struggling.length;
+  if (totalTasks === 0 && stalePhotos.length === 0 && seasonal.length === 0) {
+    html += `
+      <div style="text-align:center;padding:40px 20px;background:var(--good-bg);border-radius:12px">
+        <div style="font-size:56px;margin-bottom:8px">🌿</div>
+        <div style="font-family:'Fraunces',serif;font-size:18px;font-weight:700;color:var(--good-fg);margin-bottom:4px">All caught up</div>
+        <div style="font-size:12px;color:var(--text)">Nothing due today. Your garden's in great shape.</div>
+      </div>`;
+  }
+
+  grid.innerHTML = html;
+
+  // ── Wire interactions ────────────────────────────────────────────────────
+  // Row tap → open plant detail
+  grid.querySelectorAll('.today-row').forEach(row => {
+    row.addEventListener('click', e => {
+      // Don't intercept button clicks
+      if (e.target.closest('button')) return;
+      openModal(row.dataset.plant);
+    });
+  });
+
+  // One-tap log buttons (water/feed per plant)
+  grid.querySelectorAll('.today-log-btn').forEach(btn => {
+    btn.addEventListener('click', async e => {
+      e.stopPropagation();
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spin"></span>';
+      const ok = await logCareEvent(btn.dataset.plant, btn.dataset.kind);
+      if (ok) renderToday();  // re-render to drop the row
+      else { btn.disabled = false; btn.textContent = btn.dataset.kind === 'water' ? '💧 Log' : '🍴 Log'; }
+    });
+  });
+
+  // Mark concern addressed — creates an inspect event with ✓ Addressed prefix
+  grid.querySelectorAll('.today-address-btn').forEach(btn => {
+    btn.addEventListener('click', async e => {
+      e.stopPropagation();
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spin"></span>';
+      const ok = await logCareEvent(btn.dataset.plant, 'inspect', '✓ Addressed prior AI concern');
+      if (ok) renderToday();
+      else { btn.disabled = false; btn.textContent = '✓ Mark addressed'; }
+    });
+  });
+
+  // Bulk water/feed-all buttons
+  const wireBulk = (id, kind, items) => {
+    const btn = document.getElementById(id);
+    if (!btn) return;
+    btn.addEventListener('click', async () => {
+      if (!confirm(`Log ${kind} for ${items.length} plants?`)) return;
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spin"></span>';
+      const now = new Date().toISOString();
+      const rows = items.map(({ p }) => ({ plant_id: p.id, kind, occurred_at: now }));
+      const { data, error } = await withKey('log all ' + kind, () =>
+        sb.from('care_events').insert(rows).select(),
+        { expectRows: true }
+      );
+      if (error) { alert('Failed: ' + error.message); btn.disabled = false; return; }
+      (data || []).forEach(ev => { (careEvents[ev.plant_id] = careEvents[ev.plant_id] || []).unshift(ev); });
+      renderToday();
+      renderTodayBadge();
+    });
+  };
+  wireBulk('today-water-all', 'water', waterDue);
+  wireBulk('today-feed-all', 'feed', feedDue);
 }
 
 // ── Modal ───────────────────────────────────────────────────────────────────
