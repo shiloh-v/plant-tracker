@@ -3273,6 +3273,9 @@ function renderVerifyReview() {
   verifyState.approved = new Set(
     allDiffs.filter(d => !d.isBig).map(d => `${d.plantId}:${d.field.key}`)
   );
+  // Concerns are additive (logged as inspect care events), default approved.
+  // Keyed by plantId since there's at most one per plant.
+  verifyState.approvedConcerns = new Set(concerns.map(c => c.plantId));
   verifyState.allDiffs = allDiffs;
   verifyState.concerns = concerns;
 
@@ -3377,9 +3380,24 @@ function renderVerifyReview() {
 
   if (concerns.length) {
     html += `
-      <div style="margin-bottom:18px;padding:12px;background:var(--warn-bg);border-radius:8px">
-        <div style="font-size:13px;font-weight:700;color:var(--warn-fg);margin-bottom:6px">👀 Visible concerns spotted in photos</div>
-        ${concerns.map(c => `<div style="font-size:12px;line-height:1.5;margin-bottom:4px"><a href="#plant=${c.plantId}" data-plant-link="${c.plantId}" style="color:var(--warn-fg);font-weight:700;text-decoration:none;border-bottom:1px dotted var(--warn-fg)">${escapeHtml(c.plantName)}</a> — ${escapeHtml(c.text)}</div>`).join('')}
+      <div style="margin-bottom:18px">
+        <div style="font-size:13px;font-weight:700;color:var(--warn-fg);margin-bottom:2px">👀 Visible concerns — log as inspect events</div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:8px">Things Claude noticed in the photos (pests, disease, sunburn). Checked items will be logged to the plant's care timeline so you can act on them.</div>
+        <div style="display:flex;gap:8px;margin-bottom:8px">
+          <button class="verify-concern-bulk" data-action="approve" style="flex:1;padding:6px 10px;background:var(--warn-fg);color:white;border:none;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit">✓ Log all</button>
+          <button class="verify-concern-bulk" data-action="reject" style="flex:1;padding:6px 10px;background:none;border:1.5px solid var(--border);color:var(--muted);border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit">✕ Skip all</button>
+        </div>
+        ${concerns.map(c => {
+          const checked = verifyState.approvedConcerns.has(c.plantId);
+          return `
+          <label class="verify-concern-row" data-plant="${c.plantId}" style="display:flex;gap:10px;padding:10px;background:${checked ? 'var(--warn-bg)' : 'var(--soft)'};border:1.5px solid ${checked ? 'var(--warn-fg)' : 'transparent'};border-radius:8px;margin-bottom:6px;cursor:pointer;align-items:flex-start;transition:all .15s">
+            <input type="checkbox" class="verify-concern-cb" data-plant="${c.plantId}" ${checked ? 'checked' : ''} style="margin-top:2px;flex-shrink:0;width:18px;height:18px;cursor:pointer;accent-color:var(--warn-fg)">
+            <div style="flex:1;min-width:0">
+              <div style="font-size:12px;font-weight:700;line-height:1.2"><a href="#plant=${c.plantId}" data-plant-link="${c.plantId}" style="color:var(--text);text-decoration:none;border-bottom:1px dotted var(--muted)">${escapeHtml(c.plantName)}</a></div>
+              <div style="font-size:12px;color:var(--text);margin-top:4px;line-height:1.5">👀 ${escapeHtml(c.text)}</div>
+            </div>
+          </label>`;
+        }).join('')}
       </div>`;
   }
 
@@ -3399,16 +3417,17 @@ function renderVerifyReview() {
       </div>`;
   }
 
-  // Sticky apply bar
+  // Sticky apply bar — count covers diffs + concerns
+  const initialTotal = verifyState.approved.size + verifyState.approvedConcerns.size;
   html += `
     <div style="position:sticky;bottom:-18px;background:var(--cream);padding:12px 0 0;border-top:1px solid var(--border);margin:0 -2px;display:flex;gap:8px">
       <button id="verify-cancel-btn" style="flex:1;padding:11px;background:none;border:1.5px solid var(--border);border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;color:var(--muted)">Discard all</button>
-      <button id="verify-apply-btn" style="flex:2;padding:11px;background:var(--green);color:white;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">Apply <span id="verify-apply-count">${verifyState.approved.size}</span> change${verifyState.approved.size === 1 ? '' : 's'}</button>
+      <button id="verify-apply-btn" style="flex:2;padding:11px;background:var(--green);color:white;border:none;border-radius:10px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">Apply <span id="verify-apply-count">${initialTotal}</span></button>
     </div>`;
 
   document.getElementById('verify-body').innerHTML = html;
 
-  // Wire checkbox toggles — they restyle the row and update the apply count
+  // Wire diff checkbox toggles — restyle the row and update the apply count
   document.getElementById('verify-body').querySelectorAll('.verify-cb').forEach(cb => {
     cb.addEventListener('change', () => {
       const key = cb.dataset.key;
@@ -3418,6 +3437,21 @@ function renderVerifyReview() {
       if (row) {
         row.style.background = cb.checked ? 'rgba(45,90,39,.06)' : 'var(--soft)';
         row.style.borderColor = cb.checked ? 'var(--green)' : 'transparent';
+      }
+      updateVerifyApplyCount();
+    });
+  });
+
+  // Wire concern checkbox toggles — same dance for the warn-bg rows
+  document.getElementById('verify-body').querySelectorAll('.verify-concern-cb').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const plantId = cb.dataset.plant;
+      if (cb.checked) verifyState.approvedConcerns.add(plantId);
+      else verifyState.approvedConcerns.delete(plantId);
+      const row = cb.closest('.verify-concern-row');
+      if (row) {
+        row.style.background = cb.checked ? 'var(--warn-bg)' : 'var(--soft)';
+        row.style.borderColor = cb.checked ? 'var(--warn-fg)' : 'transparent';
       }
       updateVerifyApplyCount();
     });
@@ -3449,6 +3483,27 @@ function renderVerifyReview() {
     });
   });
 
+  // Concern bulk buttons
+  document.getElementById('verify-body').querySelectorAll('.verify-concern-bulk').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const approve = btn.dataset.action === 'approve';
+      concerns.forEach(c => {
+        if (approve) verifyState.approvedConcerns.add(c.plantId);
+        else verifyState.approvedConcerns.delete(c.plantId);
+        const cb = document.querySelector(`.verify-concern-cb[data-plant="${CSS.escape(c.plantId)}"]`);
+        if (cb) {
+          cb.checked = approve;
+          const row = cb.closest('.verify-concern-row');
+          if (row) {
+            row.style.background = approve ? 'var(--warn-bg)' : 'var(--soft)';
+            row.style.borderColor = approve ? 'var(--warn-fg)' : 'transparent';
+          }
+        }
+      });
+      updateVerifyApplyCount();
+    });
+  });
+
   // Plant deep-links — open the detail modal directly
   document.getElementById('verify-body').querySelectorAll('[data-plant-link]').forEach(a => {
     a.addEventListener('click', e => {
@@ -3459,27 +3514,33 @@ function renderVerifyReview() {
   });
 
   document.getElementById('verify-cancel-btn').addEventListener('click', () => {
-    if (verifyState.approved.size > 0 && !confirm('Discard all proposed changes?')) return;
+    const total = verifyState.approved.size + verifyState.approvedConcerns.size;
+    if (total > 0 && !confirm('Discard all proposed changes and concerns?')) return;
     closeVerify();
   });
   document.getElementById('verify-apply-btn').addEventListener('click', applyVerifyChanges);
 }
 
 function updateVerifyApplyCount() {
-  const n = verifyState.approved.size;
-  const span = document.getElementById('verify-apply-count');
-  if (span) span.textContent = n;
+  const diffs = verifyState.approved.size;
+  const concerns = verifyState.approvedConcerns.size;
+  const total = diffs + concerns;
   const btn = document.getElementById('verify-apply-btn');
   if (btn) {
-    btn.innerHTML = `Apply <span id="verify-apply-count">${n}</span> change${n === 1 ? '' : 's'}`;
-    btn.disabled = n === 0;
-    btn.style.opacity = n === 0 ? '.5' : '1';
+    const parts = [];
+    if (diffs) parts.push(`${diffs} change${diffs === 1 ? '' : 's'}`);
+    if (concerns) parts.push(`${concerns} concern log${concerns === 1 ? '' : 's'}`);
+    const label = parts.length ? parts.join(' + ') : 'nothing';
+    btn.innerHTML = `Apply ${label}`;
+    btn.disabled = total === 0;
+    btn.style.opacity = total === 0 ? '.5' : '1';
   }
 }
 
 async function applyVerifyChanges() {
   const approved = verifyState.allDiffs.filter(d => verifyState.approved.has(`${d.plantId}:${d.field.key}`));
-  if (approved.length === 0) return;
+  const approvedConcerns = verifyState.concerns.filter(c => verifyState.approvedConcerns.has(c.plantId));
+  if (approved.length === 0 && approvedConcerns.length === 0) return;
 
   const btn = document.getElementById('verify-apply-btn');
   btn.disabled = true;
@@ -3504,6 +3565,7 @@ async function applyVerifyChanges() {
   const errors = [];
   let appliedPlantsCount = 0;
   let appliedNotesCount = 0;
+  let appliedConcernCount = 0;
 
   for (const [plantId, tables] of Object.entries(byPlant)) {
     // plants table update
@@ -3540,19 +3602,40 @@ async function applyVerifyChanges() {
     }
   }
 
+  // Log approved concerns as inspect care events — additive, dated, deletable
+  // from the plant's care timeline if the AI was wrong
+  const nowIso = new Date().toISOString();
+  for (const c of approvedConcerns) {
+    const res = await withKey('verify log concern', () =>
+      sb.from('care_events').insert({
+        plant_id: c.plantId,
+        kind: 'inspect',
+        occurred_at: nowIso,
+        notes: 'AI noticed: ' + c.text,
+      }).select(),
+      { expectRows: true }
+    );
+    if (res.error) errors.push(`${c.plantId} concern: ${res.error.message}`);
+    else appliedConcernCount++;
+  }
+
   await loadData();
 
   if (errors.length) {
-    alert(`Applied ${appliedPlantsCount + appliedNotesCount} updates, but hit ${errors.length} errors:\n\n` + errors.slice(0, 6).join('\n'));
+    alert(`Applied ${appliedPlantsCount + appliedNotesCount + appliedConcernCount} updates, but hit ${errors.length} errors:\n\n` + errors.slice(0, 6).join('\n'));
   } else {
     // Brief toast-style confirmation in the modal before closing
+    const summaryParts = [];
+    if (approved.length) summaryParts.push(`${approved.length} change${approved.length === 1 ? '' : 's'}`);
+    if (appliedConcernCount) summaryParts.push(`${appliedConcernCount} concern${appliedConcernCount === 1 ? '' : 's'} logged`);
+    const plantsTouched = new Set([...Object.keys(byPlant), ...approvedConcerns.map(c => c.plantId)]).size;
     document.getElementById('verify-body').innerHTML = `
       <div style="padding:36px 12px;text-align:center">
         <div style="font-size:48px;margin-bottom:10px">✓</div>
-        <div style="font-family:'Fraunces',serif;font-size:18px;font-weight:700;margin-bottom:6px">Applied ${approved.length} change${approved.length === 1 ? '' : 's'}</div>
-        <div style="font-size:12px;color:var(--muted)">${Object.keys(byPlant).length} plant${Object.keys(byPlant).length === 1 ? '' : 's'} updated</div>
+        <div style="font-family:'Fraunces',serif;font-size:18px;font-weight:700;margin-bottom:6px">Applied ${summaryParts.join(' + ')}</div>
+        <div style="font-size:12px;color:var(--muted)">${plantsTouched} plant${plantsTouched === 1 ? '' : 's'} updated</div>
       </div>`;
-    setTimeout(closeVerify, 1500);
+    setTimeout(closeVerify, 1800);
   }
 }
 
@@ -3563,9 +3646,10 @@ function closeVerify() {
 }
 
 document.getElementById('verify-close').addEventListener('click', () => {
-  if (verifyState && verifyState.results.length > 0 && verifyState.approved && verifyState.approved.size > 0) {
-    if (!confirm('Discard all proposed changes?')) return;
-  }
+  const pendingTotal = verifyState && verifyState.results.length > 0
+    ? (verifyState.approved?.size || 0) + (verifyState.approvedConcerns?.size || 0)
+    : 0;
+  if (pendingTotal > 0 && !confirm('Discard all proposed changes and concerns?')) return;
   if (verifyState && verifyState.targets && verifyState.results.length < verifyState.targets.length) {
     verifyState.aborted = true;
   }
