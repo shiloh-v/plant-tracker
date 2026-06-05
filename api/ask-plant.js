@@ -92,7 +92,7 @@ export default async function handler(req, res) {
       `- Recorded name: ${plant.name}${plant.sub ? ` (${plant.sub})` : ''}`,
       `- Scientific name: ${plant.sci || '(not recorded)'}`,
       `- Type / location: ${plant.type} / ${plant.loc}`,
-      `- Container: ${plant.pot || '(not recorded)'}`,
+      plant.pot ? `- Container: ${plant.pot}` : `- Planted in-ground or in a bed (no pot)`,
     ];
     if (override.health) ctxLines.push(`- Current health rating: ${override.health}`);
     ctxLines.push(`- Current status text: ${(override.status || plant.status || '(none)').trim()}`);
