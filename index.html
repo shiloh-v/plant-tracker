@@ -1014,9 +1014,12 @@ function renderLogAllOverdueBtn(visiblePlants) {
   }
 }
 
-// True if the plant has at least one photo AND its latest photo is more recent
-// than its last AI analysis (or it has photos but has never been analyzed).
-// This is the "ready for AI" signal — drives the auto-detect Analyze button.
+// True if the plant has at least one photo AND its latest photo is from a
+// LATER LOCAL DAY than its last AI analysis (or it has photos but has never
+// been analyzed). Day-granular because the analyze endpoint writes its
+// timestamp as date-only ("Jun 5, 2026") which Date.parse reads as midnight
+// — so a photo uploaded at 2pm the same day appeared "newer" than the
+// analysis under strict ms comparison.
 function hasStaleAnalysis(p) {
   if (p.archived_at) return false;
   const history = photoHistory[p.id] || [];
@@ -1024,7 +1027,11 @@ function hasStaleAnalysis(p) {
   const latestPhotoTs = history[0].ts;
   const lastAI = lastAIAnalysisDate(p.id);
   if (!lastAI) return true;  // photos exist but never analyzed
-  return latestPhotoTs > lastAI.getTime();
+  const localDay = ms => {
+    const d = new Date(ms);
+    return d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate();
+  };
+  return localDay(latestPhotoTs) > localDay(lastAI.getTime());
 }
 
 function renderAnalyzeStaleBtn(visiblePlants) {
