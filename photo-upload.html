@@ -233,6 +233,35 @@
   .auto-btn { background: linear-gradient(135deg,#7c3aed,#6d28d9); color: white; border: none; border-radius: 16px; padding: 6px 12px; font-size: 12px; font-weight: 700; font-family: inherit; cursor: pointer; box-shadow: 0 2px 6px rgba(124,58,237,.3); }
   .auto-btn:disabled { opacity: .4; cursor: not-allowed; box-shadow: none; }
 
+  /* Card photo zoom modal */
+  #cp-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.92); z-index: 240; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 16px; }
+  #cp-overlay.hidden { display: none; }
+  #cp-top { position: absolute; top: 14px; left: 16px; right: 16px; display: flex; justify-content: space-between; align-items: center; color: white; font-family: inherit; }
+  #cp-nav-info { font-size: 13px; font-weight: 700; }
+  #cp-filename { font-size: 11px; color: rgba(255,255,255,.65); margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 70%; }
+  #cp-close { background: rgba(255,255,255,.15); border: none; border-radius: 50%; width: 38px; height: 38px; font-size: 22px; color: white; cursor: pointer; font-family: inherit; line-height: 1; padding: 0; }
+  #cp-img { max-width: 95vw; max-height: calc(100vh - 220px); object-fit: contain; border-radius: 10px; background: black; }
+  #cp-row { width: 100%; max-width: 720px; margin-top: 18px; display: flex; gap: 10px; align-items: center; }
+  #cp-prev, #cp-next { flex-shrink: 0; background: rgba(255,255,255,.15); border: none; border-radius: 50%; width: 44px; height: 44px; font-size: 22px; color: white; cursor: pointer; font-family: inherit; line-height: 1; padding: 0; }
+  #cp-prev:hover, #cp-next:hover { background: rgba(255,255,255,.28); }
+  #cp-prev:disabled, #cp-next:disabled { opacity: .25; cursor: not-allowed; }
+  #cp-cb { flex: 1; }
+  #cp-cb .combobox { position: relative; }
+  #cp-cb .combobox input { width: 100%; padding: 12px 36px 12px 14px; border-radius: 12px; border: 2px solid var(--cream); font-size: 15px; font-family: inherit; outline: none; background: var(--cream); color: var(--text); }
+  #cp-cb .combobox input:focus { border-color: var(--green); }
+  #cp-cb .combobox .clear { position: absolute; top: 50%; right: 10px; transform: translateY(-50%); background: none; border: none; color: var(--muted); font-size: 16px; cursor: pointer; padding: 0; line-height: 1; }
+  #cp-cb .combobox .list { position: absolute; bottom: calc(100% + 6px); left: 0; right: 0; background: var(--cream); border: 1px solid var(--border); border-radius: 10px; max-height: 280px; overflow-y: auto; box-shadow: 0 -6px 20px rgba(0,0,0,.4); z-index: 5; display: none; }
+  #cp-cb .combobox.open .list { display: block; }
+  #cp-cb .combobox .list .opt { padding: 9px 12px; font-size: 13px; cursor: pointer; border-bottom: 1px solid var(--border); }
+  #cp-cb .combobox .list .opt:last-child { border-bottom: none; }
+  #cp-cb .combobox .list .opt:hover, #cp-cb .combobox .list .opt.active { background: var(--soft); }
+  #cp-cb .combobox .opt-name { font-weight: 700; }
+  #cp-cb .combobox .opt-meta { font-size: 11px; color: var(--muted); margin-top: 1px; }
+  #cp-cb .combobox .empty { padding: 12px; font-size: 13px; color: var(--muted); text-align: center; }
+  #cp-status { position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%); font-size: 11px; color: rgba(255,255,255,.55); font-family: inherit; }
+
+  .pcard-photo img { cursor: zoom-in; }
+
   /* Bulk action bar */
   #bulk-bar { position: fixed; bottom: 0; left: 0; right: 0; background: var(--green); color: white; padding: 11px 14px; box-shadow: 0 -4px 16px rgba(0,0,0,.25); z-index: 95; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
   #bulk-bar.hidden { display: none; }
@@ -295,6 +324,24 @@
 </div>
 
 <input type="file" id="file-input" accept="image/*" multiple style="display:none">
+
+<!-- ── Card photo zoom modal ── -->
+<div id="cp-overlay" class="hidden">
+  <div id="cp-top">
+    <div>
+      <div id="cp-nav-info">Photo 1 of 1</div>
+      <div id="cp-filename"></div>
+    </div>
+    <button id="cp-close" title="Close (Esc)">×</button>
+  </div>
+  <img id="cp-img" alt="">
+  <div id="cp-row">
+    <button id="cp-prev" title="Previous (←)">‹</button>
+    <div id="cp-cb"></div>
+    <button id="cp-next" title="Next (→)">›</button>
+  </div>
+  <div id="cp-status">Enter to pick · ↹ Tab or → Next · Esc to close</div>
+</div>
 
 <div id="bulk-bar" class="hidden">
   <span class="count" id="bulk-count">0 selected</span>
@@ -688,7 +735,8 @@ function plantMatches(p, q) {
       || (p.id || '').toLowerCase().includes(q);
 }
 
-function buildCombobox(card) {
+function buildCombobox(card, opts) {
+  opts = opts || {};
   const wrap = document.createElement('div');
   wrap.className = 'combobox' + (card.plantId ? ' has-pick' : '');
   const picked = card.plantId ? PLANTS.find(p => p.id === card.plantId) : null;
@@ -733,6 +781,7 @@ function buildCombobox(card) {
     renderCard(card);
     updateSummary();
     checkDuplicate(card);
+    if (opts.onPick) opts.onPick(p);
   }
 
   input.addEventListener('focus', () => { activeIdx = 0; open(); });
@@ -742,6 +791,13 @@ function buildCombobox(card) {
     else if (e.key === 'ArrowUp') { e.preventDefault(); activeIdx = Math.max(activeIdx - 1, 0); refresh(false); }
     else if (e.key === 'Enter') { e.preventDefault(); if (filtered[activeIdx]) pick(filtered[activeIdx]); }
     else if (e.key === 'Escape') { close(); input.blur(); }
+    else if (e.key === 'Tab') {
+      // Skip past sibling buttons (clear, skip, ×) and jump straight to the
+      // next card's combobox. Shift+Tab goes back to the previous one.
+      e.preventDefault();
+      if (opts.handleTab) opts.handleTab(e.shiftKey);
+      else focusAdjacentCardCombobox(input, e.shiftKey ? -1 : 1);
+    }
   });
   list.addEventListener('mousedown', e => {
     const opt = e.target.closest('.opt');
@@ -769,6 +825,94 @@ function buildCombobox(card) {
 
   return wrap;
 }
+
+// Finds the next/previous .combobox input on the page and focuses it. Used
+// for Tab navigation between card comboboxes — skips over selection
+// checkboxes, X buttons, skip buttons, and other intermediate focusables.
+function focusAdjacentCardCombobox(currentInput, delta) {
+  const inputs = [...document.querySelectorAll('#grid .pcard .combobox input')];
+  const idx = inputs.indexOf(currentInput);
+  if (idx < 0) return;
+  const next = inputs[idx + delta];
+  if (next) { next.focus(); next.select(); }
+}
+
+// ── Card photo zoom modal ──────────────────────────────────────────────────
+// Click any thumbnail in the grid → opens a large view with a plant
+// combobox below. Picking advances to the next card, so the keyboard
+// workflow is: click → type → Enter → type → Enter → … Esc when done.
+let cpCurrentUid = null;
+
+function openCardPhotoModal(uid) {
+  const card = cards.find(c => c.uid === uid);
+  if (!card) return;
+  cpCurrentUid = uid;
+
+  document.getElementById('cp-img').src = card.previewUrl;
+  document.getElementById('cp-img').alt = card.file.name;
+  document.getElementById('cp-filename').textContent = card.file.name;
+
+  const idx = cards.findIndex(c => c.uid === uid);
+  document.getElementById('cp-nav-info').textContent = 'Photo ' + (idx + 1) + ' of ' + cards.length + ' · ' + (card.plantId
+    ? '✓ ' + (PLANTS.find(p => p.id === card.plantId)?.name || card.plantId)
+    : (card.status === 'unassigned' ? 'unassigned' : card.status));
+  document.getElementById('cp-prev').disabled = idx <= 0;
+  document.getElementById('cp-next').disabled = idx >= cards.length - 1;
+
+  // Mount a fresh combobox bound to this card. Tab inside the modal jumps
+  // to the next card; Enter pick advances to the next card.
+  const slot = document.getElementById('cp-cb');
+  slot.innerHTML = '';
+  slot.appendChild(buildCombobox(card, {
+    onPick: () => cpNavigate(1),
+    handleTab: (shift) => cpNavigate(shift ? -1 : 1),
+  }));
+
+  document.getElementById('cp-overlay').classList.remove('hidden');
+  setTimeout(() => {
+    const input = slot.querySelector('input');
+    if (input) { input.focus(); input.select(); }
+  }, 60);
+}
+
+function closeCardPhotoModal() {
+  document.getElementById('cp-overlay').classList.add('hidden');
+  cpCurrentUid = null;
+}
+
+function cpNavigate(delta) {
+  if (cpCurrentUid == null) return;
+  const idx = cards.findIndex(c => c.uid === cpCurrentUid);
+  if (idx < 0) return;
+  const newIdx = idx + delta;
+  if (newIdx < 0 || newIdx >= cards.length) {
+    // Hit a boundary — close instead of doing nothing if user pressed Enter on the last card
+    if (delta > 0) closeCardPhotoModal();
+    return;
+  }
+  openCardPhotoModal(cards[newIdx].uid);
+}
+
+(function wireCardPhotoModal() {
+  document.getElementById('cp-close').addEventListener('click', closeCardPhotoModal);
+  document.getElementById('cp-prev').addEventListener('click', () => cpNavigate(-1));
+  document.getElementById('cp-next').addEventListener('click', () => cpNavigate(1));
+  document.getElementById('cp-overlay').addEventListener('click', e => {
+    // Click on the dark background (not the photo, button, or combobox) closes
+    if (e.target.id === 'cp-overlay') closeCardPhotoModal();
+  });
+  // Keyboard: Esc to close; arrow keys to navigate ONLY when not typing
+  document.addEventListener('keydown', e => {
+    const overlay = document.getElementById('cp-overlay');
+    if (overlay.classList.contains('hidden')) return;
+    if (e.key === 'Escape') { closeCardPhotoModal(); return; }
+    // Don't intercept arrows while the user is typing in the input — they
+    // probably want text-cursor movement, not photo nav. Use the buttons for that.
+    if (e.target.tagName === 'INPUT') return;
+    if (e.key === 'ArrowLeft')  cpNavigate(-1);
+    if (e.key === 'ArrowRight') cpNavigate(1);
+  });
+})();
 
 // ── Card rendering ──────────────────────────────────────────────────────────
 function esc(s) {
@@ -830,8 +974,23 @@ function buildCard(card) {
       (card.errorMsg ? '<div class="' + msgClass + '">' + esc(card.errorMsg) + '</div>' : '') +
     '</div>';
 
-  el.querySelector('.combobox-slot').replaceWith(buildCombobox(card));
+  // Advance focus to the next card's combobox after a successful pick so
+  // keyboard users don't have to tab past skip/X/select buttons in between.
+  el.querySelector('.combobox-slot').replaceWith(buildCombobox(card, {
+    onPick: () => {
+      const inputs = [...document.querySelectorAll('#grid .pcard .combobox input')];
+      const idx = inputs.findIndex(i => i.closest('.pcard')?.dataset.uid == String(card.uid));
+      const next = inputs[idx + 1];
+      if (next) setTimeout(() => { next.focus(); next.select(); }, 30);
+    }
+  }));
 
+  // Click the thumbnail itself → open the zoom modal for this card
+  const photoImg = el.querySelector('.pcard-photo img');
+  if (photoImg) photoImg.addEventListener('click', e => {
+    e.stopPropagation();
+    openCardPhotoModal(card.uid);
+  });
   el.querySelector('.pcard-x').addEventListener('click', () => {
     removeCard(card.uid);
   });
