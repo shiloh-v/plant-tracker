@@ -179,6 +179,7 @@
       <button class="tab" data-tab="indoor">Indoor</button>
       <button class="tab" data-tab="outdoor">Outdoor</button>
       <button class="tab" data-tab="attention">⚠ Attention<span id="attention-count" style="display:none;margin-left:5px;background:var(--danger-bg);color:var(--danger-fg);font-size:10px;font-weight:700;padding:1px 6px;border-radius:8px"></span></button>
+      <button class="tab" data-tab="lost" id="tab-lost" style="display:none">💀 Lost<span id="lost-count" style="margin-left:5px;background:var(--soft);color:var(--muted);font-size:10px;font-weight:700;padding:1px 6px;border-radius:8px"></span></button>
     </div>
   </div>
 </div>
@@ -262,7 +263,9 @@
     <button class="btn-edit" id="edit-btn">✏️ Edit status &amp; notes</button>
     <button class="btn-edit" id="edit-details-btn" style="margin-top:8px">✎ Edit details</button>
     <div class="modal-updated" id="modal-updated"></div>
-    <div style="text-align:center;margin-top:14px">
+    <div style="text-align:center;margin-top:14px;display:flex;flex-direction:column;gap:6px;align-items:center">
+      <button id="deceased-btn" style="background:none;border:none;color:var(--muted);font-size:11px;font-family:inherit;cursor:pointer;text-decoration:underline;padding:4px 8px">💀 Didn't survive — mark as lost</button>
+      <button id="restore-btn" style="background:none;border:none;color:var(--good-fg);font-size:11px;font-family:inherit;cursor:pointer;text-decoration:underline;padding:4px 8px;display:none">↩ Restore — this plant is alive</button>
       <button id="archive-btn" style="background:none;border:none;color:var(--muted);font-size:11px;font-family:inherit;cursor:pointer;text-decoration:underline;padding:4px 8px">Archive this plant</button>
     </div>
   </div>
@@ -502,6 +505,7 @@ let photoURLs = {};      // id -> latest public URL string (with cache-bust)
 let photoHistory = {};   // id -> [{url, ts, label}] newest-first
 let careEvents = {};     // plant_id -> events array (sorted newest-first)
 let hasSeasonalCol = false;  // set true after loadData if plants.seasonal_care exists
+let hasDeceasedCol = false;  // set true after loadData if plants.deceased_at exists (migration 006)
 let selectedId = null;
 let tab = 'all';
 let locFilter = 'all';
@@ -745,6 +749,7 @@ async function loadData() {
 
   PLANTS = plantsRes.data || [];
   hasSeasonalCol = PLANTS.length > 0 && 'seasonal_care' in PLANTS[0];
+  hasDeceasedCol = PLANTS.length > 0 && 'deceased_at' in PLANTS[0];
   overrides = {};
   photoURLs = {};
   photoHistory = {};
@@ -912,11 +917,17 @@ function attachLongPress(el, onShort, onLong, holdMs) {
 // ── Render helpers ──────────────────────────────────────────────────────────
 function getStatus(plant) { return overrides[plant.id]?.status || plant.status; }
 
+// "Active" = neither archived nor deceased. Used as the default filter for
+// every grid / digest / verify / analyze flow. Deceased plants live on in
+// the database for memorial / care-timeline reference but should never
+// nag the user for water or appear in any action list.
+function isActive(p) { return !p.archived_at && !p.deceased_at; }
+
 // True if a plant should surface in the "Attention" tab. Health is the
 // primary signal (watch / struggling / critical); overdue water/feed is the
 // secondary signal.
 function needsAttention(p) {
-  if (p.archived_at) return false;
+  if (!isActive(p)) return false;
   const h = plantHealth(p);
   if (h === 'watch' || h === 'struggling' || h === 'critical') return true;
   if (p.water_every_days) {
@@ -931,6 +942,7 @@ function needsAttention(p) {
 }
 
 function tabMatches(p) {
+  if (tab === 'lost')      return !!p.deceased_at;
   if (tab === 'all')       return true;
   if (tab === 'attention') return needsAttention(p);
   return p.type === tab;
@@ -939,7 +951,9 @@ function tabMatches(p) {
 function getFilteredPlants() {
   const q = document.getElementById('search').value.trim().toLowerCase();
   const list = PLANTS.filter(p => {
+    // Archived are always hidden. Deceased are hidden EXCEPT on the Lost tab.
     if (p.archived_at) return false;
+    if (p.deceased_at && tab !== 'lost') return false;
     if (!tabMatches(p)) return false;
     if (locFilter !== 'all' && p.loc !== locFilter) return false;
     if (q) return p.name.toLowerCase().includes(q) || (p.sci||'').toLowerCase().includes(q) || (p.sub||'').toLowerCase().includes(q) || p.loc.toLowerCase().includes(q);
@@ -977,7 +991,7 @@ function renderLocPills() {
   // Location pills only show when narrowing by type (Indoor/Outdoor). They're
   // hidden on All and Attention to keep the header from being overwhelming.
   if (q || (tab !== 'indoor' && tab !== 'outdoor')) { bar.innerHTML = ''; return; }
-  const locs = ['all', ...new Set(PLANTS.filter(p => !p.archived_at && tabMatches(p)).map(p => p.loc))];
+  const locs = ['all', ...new Set(PLANTS.filter(p => isActive(p) && tabMatches(p)).map(p => p.loc))];
   bar.innerHTML = locs.map(loc =>
     `<button class="loc-pill${locFilter === loc ? ' active' : ''}" data-loc="${loc}">${loc === 'all' ? 'All Areas' : loc}</button>`
   ).join('');
@@ -989,11 +1003,18 @@ function renderAttentionBadge() {
   if (!badge) return;
   if (n > 0) { badge.textContent = n; badge.style.display = 'inline-block'; }
   else       { badge.style.display = 'none'; }
+
+  // Lost tab — only show when there's something to memorialize
+  const lostN = PLANTS.filter(p => p.deceased_at).length;
+  const lostTab = document.getElementById('tab-lost');
+  const lostBadge = document.getElementById('lost-count');
+  if (lostTab) lostTab.style.display = lostN > 0 ? 'inline-block' : 'none';
+  if (lostBadge) lostBadge.textContent = lostN;
 }
 
 // Plants whose water cadence is set AND last watered is past the cadence (or never)
 function isWaterOverdue(p) {
-  if (p.archived_at) return false;
+  if (!isActive(p)) return false;
   if (!p.water_every_days) return false;
   const w = careStatus(p, 'water', p.water_every_days);
   return w.dueIn !== null && w.dueIn <= 0;
@@ -1021,7 +1042,7 @@ function renderLogAllOverdueBtn(visiblePlants) {
 // — so a photo uploaded at 2pm the same day appeared "newer" than the
 // analysis under strict ms comparison.
 function hasStaleAnalysis(p) {
-  if (p.archived_at) return false;
+  if (!isActive(p)) return false;
   const history = photoHistory[p.id] || [];
   if (history.length === 0) return false;
   const latestPhotoTs = history[0].ts;
@@ -1062,21 +1083,24 @@ function renderGrid() {
     const hm = healthMeta(h);
     const ov = overrides[p.id];
     const sel = selectMode && selectedIds.has(p.id);
+    const isDead = !!p.deceased_at;
     return `
-      <div class="card${sel ? ' selected' : ''}" data-id="${p.id}">
+      <div class="card${sel ? ' selected' : ''}${isDead ? ' lost' : ''}" data-id="${p.id}">
         <div class="card-photo">
           ${selectMode ? `<span class="select-check">${sel ? '✓' : ''}</span>` : ''}
-          ${url ? `<img src="${url}" alt="${p.name}" loading="lazy">` : '<span class="placeholder">🌱</span>'}
-          ${p.toxic ? '<span class="toxic-badge">☠ TOXIC</span>' : ''}
+          ${url ? `<img src="${url}" alt="${p.name}" loading="lazy"${isDead ? ' style="filter:grayscale(.85) opacity(.7)"' : ''}>` : '<span class="placeholder">🌱</span>'}
+          ${p.toxic && !isDead ? '<span class="toxic-badge">☠ TOXIC</span>' : ''}
+          ${isDead ? '<span class="toxic-badge" style="background:rgba(80,80,80,.85);color:white">💀 LOST</span>' : ''}
           ${!url && !selectMode ? '<span class="add-hint">+ photo</span>' : ''}
         </div>
         <div class="card-body">
-          <div class="card-name">${p.name}</div>
+          <div class="card-name"${isDead ? ' style="color:var(--muted)"' : ''}>${p.name}</div>
           ${p.sub ? `<div class="card-sub">${p.sub}</div>` : ''}
           <div class="card-loc">${p.loc}</div>
-          ${h ? `<span class="health-badge" style="color:${hm.color};background:${hm.bg}">${hm.emoji ? hm.emoji + ' ' : ''}${hm.label}</span>` : ''}
-          ${st ? `<div class="card-status">${st}</div>` : ''}
-          ${ov?.updated_at ? `<div class="card-updated">Updated ${new Date(ov.updated_at).toLocaleDateString('en-US',{month:'short',day:'numeric'})}</div>` : ''}
+          ${isDead ? `<div style="font-size:11px;color:var(--muted);font-style:italic;margin-top:4px">Did not survive — ${new Date(p.deceased_at).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}</div>` : ''}
+          ${!isDead && h ? `<span class="health-badge" style="color:${hm.color};background:${hm.bg}">${hm.emoji ? hm.emoji + ' ' : ''}${hm.label}</span>` : ''}
+          ${!isDead && st ? `<div class="card-status">${st}</div>` : ''}
+          ${!isDead && ov?.updated_at ? `<div class="card-updated">Updated ${new Date(ov.updated_at).toLocaleDateString('en-US',{month:'short',day:'numeric'})}</div>` : ''}
         </div>
       </div>`;
   }).join('');
@@ -1106,11 +1130,19 @@ function openModal(id) {
   dlBtn.onclick = () => downloadPhoto(id);
   renderHistoryStrip(id);
 
-  // Show the AI analyze button only when there's at least one photo
+  // Show the AI analyze button only when there's at least one photo. Hide
+  // entirely for deceased plants — no point analyzing what isn't there.
   const analyzeBtn = document.getElementById('analyze-btn');
-  analyzeBtn.style.display = url ? 'block' : 'none';
-  analyzeBtn.innerHTML = '🔍 Analyze with AI';
-  analyzeBtn.disabled = false;
+  const askBtn = document.getElementById('ask-btn');
+  if (p.deceased_at) {
+    analyzeBtn.style.display = 'none';
+    askBtn.style.display = 'none';
+  } else {
+    analyzeBtn.style.display = url ? 'block' : 'none';
+    analyzeBtn.innerHTML = '🔍 Analyze with AI';
+    analyzeBtn.disabled = false;
+    askBtn.style.display = 'block';
+  }
 
   // Show "last analyzed" timestamp under the button if there's a prior run.
   // Independent of whether the plant currently has a photo — the analysis
@@ -1164,10 +1196,36 @@ function openModal(id) {
   setEditMode(false);
   renderCareSection(id);
 
+  // Bottom buttons: swap based on deceased state
+  const deceasedBtn = document.getElementById('deceased-btn');
+  const restoreBtn = document.getElementById('restore-btn');
+  const archiveBtn = document.getElementById('archive-btn');
+  if (p.deceased_at) {
+    deceasedBtn.style.display = 'none';
+    restoreBtn.style.display = 'inline-block';
+    restoreBtn.innerHTML = '↩ Restore — this plant is alive';
+    restoreBtn.disabled = false;
+    archiveBtn.style.display = 'none';   // already not active — archive is moot
+  } else {
+    deceasedBtn.style.display = 'inline-block';
+    deceasedBtn.innerHTML = "💀 Didn't survive — mark as lost";
+    deceasedBtn.disabled = false;
+    restoreBtn.style.display = 'none';
+    archiveBtn.style.display = 'inline-block';
+  }
+
   const updated = ov?.updated_at
     ? `Last updated ${new Date(ov.updated_at).toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})}`
     : '';
-  document.getElementById('modal-updated').textContent = updated;
+  const deceasedStamp = p.deceased_at
+    ? `💀 Did not survive — marked ${new Date(p.deceased_at).toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})}`
+    : '';
+  document.getElementById('modal-updated').textContent = deceasedStamp || updated;
+  if (deceasedStamp) {
+    document.getElementById('modal-updated').style.cssText = 'color:var(--muted);font-size:11px;text-align:center;margin-top:8px;font-style:italic';
+  } else {
+    document.getElementById('modal-updated').style.cssText = '';
+  }
 
   document.getElementById('overlay').classList.remove('hidden');
   document.body.style.overflow = 'hidden';
@@ -1812,7 +1870,7 @@ function refreshMpList() {
   const q = document.getElementById('mp-input').value.trim().toLowerCase();
   mpCtx.filtered = PLANTS.filter(p => {
     if (p.id === mpCtx.fromPid) return false;
-    if (p.archived_at) return false;
+    if (!isActive(p)) return false;
     if (!q) return true;
     return (p.name||'').toLowerCase().includes(q)
         || (p.sub||'').toLowerCase().includes(q)
@@ -2075,7 +2133,7 @@ function openPlantForm(mode, plant) {
   document.getElementById('f-identify-btn').textContent = '📷 Photo first — auto-fill from a picture';
 
   // Populate location datalist from existing (non-archived) plants
-  const locs = [...new Set(PLANTS.filter(p => !p.archived_at).map(p => p.loc))].sort();
+  const locs = [...new Set(PLANTS.filter(isActive).map(p => p.loc))].sort();
   document.getElementById('f-loc-options').innerHTML =
     locs.map(l => '<option value="' + l.replace(/"/g, '&quot;') + '">').join('');
 
@@ -2226,12 +2284,71 @@ async function archivePlant() {
   await loadData();
 }
 
+// "Didn't survive" — different from archive. Plants stay in DB for memorial,
+// care timeline preserved, but excluded from all action workflows (digest,
+// verify, analyze, attention) and hidden from default tabs.
+async function markDeceased() {
+  if (!selectedId) return;
+  if (!hasDeceasedCol) {
+    alert("Migration 006 hasn't been applied yet — run migrations/006_deceased.sql in Supabase first.");
+    return;
+  }
+  const p = PLANTS.find(x => x.id === selectedId);
+  if (!confirm('Mark "' + (p?.name || selectedId) + '" as not surviving? The plant stays in your records (memorial / care timeline) but won\'t prompt for water, feed, or AI review. You can restore it later if you change your mind.')) return;
+
+  const btn = document.getElementById('deceased-btn');
+  btn.innerHTML = '<span class="spin"></span> Marking…';
+  btn.disabled = true;
+
+  const { error } = await withKey('mark deceased', () =>
+    sb.from('plants').update({ deceased_at: new Date().toISOString() }).eq('id', selectedId).select(),
+    { expectRows: true }
+  );
+
+  if (error) {
+    alert('Mark deceased failed: ' + error.message);
+    btn.innerHTML = "💀 Didn't survive — mark as lost";
+    btn.disabled = false;
+    return;
+  }
+
+  closeModal();
+  await loadData();
+}
+
+async function restorePlant() {
+  if (!selectedId) return;
+  const p = PLANTS.find(x => x.id === selectedId);
+  if (!confirm('Restore "' + (p?.name || selectedId) + '" to active rotation? It will start showing up in lists and prompts again.')) return;
+
+  const btn = document.getElementById('restore-btn');
+  btn.innerHTML = '<span class="spin"></span> Restoring…';
+  btn.disabled = true;
+
+  const { error } = await withKey('restore plant', () =>
+    sb.from('plants').update({ deceased_at: null }).eq('id', selectedId).select(),
+    { expectRows: true }
+  );
+
+  if (error) {
+    alert('Restore failed: ' + error.message);
+    btn.innerHTML = '↩ Restore — this plant is alive';
+    btn.disabled = false;
+    return;
+  }
+
+  closeModal();
+  await loadData();
+}
+
 document.getElementById('add-plant-btn').addEventListener('click', () => openPlantForm('add', null));
 document.getElementById('edit-details-btn').addEventListener('click', () => {
   const p = PLANTS.find(x => x.id === selectedId);
   if (p) openPlantForm('edit', p);
 });
 document.getElementById('archive-btn').addEventListener('click', archivePlant);
+document.getElementById('deceased-btn').addEventListener('click', markDeceased);
+document.getElementById('restore-btn').addEventListener('click', restorePlant);
 
 // ── AI photo analysis (Phase 3) ─────────────────────────────────────────────
 async function analyzeCurrentPlant() {
@@ -2925,8 +3042,9 @@ document.getElementById('analyze-stale-btn').addEventListener('click', () => {
 
 // ── Stats dashboard ────────────────────────────────────────────────────────
 function showStats() {
-  const active = PLANTS.filter(p => !p.archived_at);
+  const active = PLANTS.filter(isActive);
   const total = active.length;
+  const deceasedCount = PLANTS.filter(p => p.deceased_at).length;
 
   // Health distribution
   const healthCounts = { thriving:0, healthy:0, establishing:0, watch:0, struggling:0, critical:0, unset:0 };
@@ -3060,6 +3178,7 @@ function showStats() {
     `<div style="background:var(--soft);border-radius:10px;padding:12px;font-size:12px;line-height:1.7">
       <div><strong>${toxic}</strong> plants flagged toxic to dogs</div>
       <div><strong>${withoutPhotos}</strong> without photos · <strong>${total - withCadence}</strong> without water/feed cadence</div>
+      ${deceasedCount ? `<div style="color:var(--muted);font-style:italic;margin-top:4px">💀 ${deceasedCount} plant${deceasedCount === 1 ? '' : 's'} did not survive (in memorial)</div>` : ''}
     </div>`
   );
 
@@ -3179,7 +3298,7 @@ async function startVerifySweep() {
     if (!ok) return;
   }
 
-  const targets = PLANTS.filter(p => !p.archived_at && photoURLs[p.id]);
+  const targets = PLANTS.filter(p => isActive(p) && photoURLs[p.id]);
   if (targets.length === 0) {
     alert('No plants with photos to verify.');
     return;

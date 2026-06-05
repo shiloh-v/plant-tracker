@@ -98,7 +98,9 @@ function buildDigest({ plants, overrides, careEvents }) {
   const eventsByPlant = {};
   careEvents.forEach(e => { (eventsByPlant[e.plant_id] = eventsByPlant[e.plant_id] || []).push(e); });
 
-  const active = plants.filter(p => !p.archived_at);
+  // Exclude both archived (intentionally retired) and deceased (didn't make it).
+  // Deceased plants stay in DB for memorial but shouldn't drive weekly nags.
+  const active = plants.filter(p => !p.archived_at && !p.deceased_at);
 
   // Compute attention list
   const now = Date.now();
@@ -301,7 +303,7 @@ export default async function handler(req, res) {
   try {
     // Pull data in parallel
     const [plants, overrides, careEvents] = await Promise.all([
-      sbFetch('plants?select=id,name,sub,sci,type,loc,status,toxic,water_every_days,feed_every_days,seasonal_care,archived_at'),
+      sbFetch('plants?select=id,name,sub,sci,type,loc,status,toxic,water_every_days,feed_every_days,seasonal_care,archived_at,deceased_at'),
       sbFetch('plant_overrides?select=id,status,notes,health,care_notes'),
       sbFetch('care_events?select=plant_id,kind,occurred_at&order=occurred_at.desc&limit=2000'),
     ]);

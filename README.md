@@ -22,6 +22,7 @@ Apply each in order via Supabase SQL Editor:
 3. [migrations/003_seasonal_care.sql](migrations/003_seasonal_care.sql) — seasonal_care flag
 4. [migrations/004_health.sql](migrations/004_health.sql) — health enum on plant_overrides
 5. [migrations/005_care_notes.sql](migrations/005_care_notes.sql) — sticky care_notes field
+6. [migrations/006_deceased.sql](migrations/006_deceased.sql) — deceased_at timestamp for plants that didn't survive
 
 After 001, run [scripts/seed.html](scripts/seed.html) once to import the initial plants.
 
