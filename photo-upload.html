@@ -168,9 +168,17 @@
   .bucket-cell.high   { border-color: var(--good-fg); }
   .bucket-cell.medium { border-color: var(--info-fg); }
   .bucket-cell.low    { border-color: #f59e0b; }
-  .bucket-cell.rejected { opacity: .35; border-color: var(--danger-fg); }
-  .bucket-cell.rejected::after { content: '✕'; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: var(--danger-fg); font-size: 28px; font-weight: 700; text-shadow: 0 1px 4px white; }
+  .bucket-cell.rejected { opacity: .5; border-color: var(--danger-fg); border-style: dashed; border-width: 3px; filter: grayscale(.85); background: var(--danger-bg); }
+  .bucket-cell.rejected::after { content: '✕'; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: var(--danger-fg); font-size: 44px; font-weight: 700; text-shadow: 0 1px 4px white, 0 -1px 4px white; line-height: 1; z-index: 3; }
   .bucket-cell.read-only { cursor: default; }
+  /* Selected (default) state — green check badge in the bottom-right corner */
+  .bucket-cell .sel-check { position: absolute; bottom: 4px; right: 4px; width: 20px; height: 20px; background: var(--good-fg); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; box-shadow: 0 0 0 2px white; pointer-events: none; z-index: 2; }
+  .bucket-cell.rejected .sel-check { display: none; }
+  .bucket-cell.read-only .sel-check { display: none; }
+  /* Move-to-plant button — top-left corner */
+  .bucket-cell .move-icon { position: absolute; top: 4px; left: 4px; width: 26px; height: 26px; background: rgba(45,90,39,.85); color: white; border: none; border-radius: 50%; font-size: 13px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; font-family: inherit; z-index: 4; padding: 0; line-height: 1; transition: transform .1s; }
+  .bucket-cell .move-icon:hover { background: var(--green); transform: scale(1.1); }
+  .bucket-cell.read-only .move-icon { display: none; }
   .bucket-cell .grp-badge { position: absolute; top: 3px; right: 3px; background: rgba(0,0,0,.6); color: white; font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 5px; line-height: 1.3; }
   .bucket-cell .conf-dot { position: absolute; bottom: 3px; left: 3px; width: 9px; height: 9px; border-radius: 50%; box-shadow: 0 0 0 1.5px white; }
   .bucket-cell.high   .conf-dot { background: var(--good-fg); }
@@ -1715,7 +1723,7 @@ function renderClusterPanel() {
       body: done
         ? '<div class="result">Clustering complete. Spent <strong>$' + fullCost.toFixed(3) + '</strong>. ' + s.clusters.size + ' cluster' + (s.clusters.size === 1 ? '' : 's') + ' from ' + s.groups.length + ' unique photo' + (s.groups.length === 1 ? '' : 's') + '.</div>' +
           (countSmallClusters(s) > 0 ? consolidateCtaHtml(s) : '') +
-          '<div class="body" style="margin-top:8px"><strong>4. Label each cluster</strong> — pick the plant for each group below. Click any individual card to move it to a different plant\'s cluster (or leave it unassigned). Skip a whole cluster with the ✕ button.</div>'
+          '<div class="body" style="margin-top:8px"><strong>4. Label each cluster</strong> — pick the plant for each group below. Tap any card to toggle whether it\'s included (✓) or excluded (✕). Use the ↪ button on a card to move it to a different plant. Skip a whole cluster with its ✕ button.</div>'
         : '<div class="muted">Cluster the remaining ' + remaining + ' photos. Estimated cost: <strong>~$' + estimateFull + '</strong> (extrapolated from test).</div>' +
           '<div class="row"><button class="primary" data-step="full">Cluster all (~$' + estimateFull + ')</button></div>'
     }));
@@ -1882,8 +1890,10 @@ function clusterCellHtml(repUid, groupSize, clusterId, readOnly) {
   return (
     '<div class="bucket-cell ' + conf + (excluded ? ' rejected' : '') + (readOnly ? ' read-only' : '') + '" data-rep-uid="' + repUid + '" data-cluster-id="' + clusterId + '"' + noteAttr + '>' +
       '<img src="' + card.previewUrl + '" alt="">' +
+      (readOnly ? '' : '<button class="move-icon" title="Move to a different plant" type="button">↪</button>') +
       (groupSize > 1 ? '<span class="grp-badge">×' + groupSize + '</span>' : '') +
       '<span class="conf-dot"></span>' +
+      '<span class="sel-check">✓</span>' +
     '</div>'
   );
 }
@@ -2144,10 +2154,22 @@ function buildClusterLabelCombobox(cluster) {
 }
 
 function wireUpBucketHandlers() {
-  // Cell clicks — open reassign modal so user can move the photo to a
-  // different plant's cluster, or leave it unassigned
+  // Cell clicks — toggle exclude/include for the card. The ↪ icon button
+  // inside the cell has its own handler (below) for moving to a different
+  // plant; clicks on it stop propagation so they don't also toggle.
   document.querySelectorAll('.bucket-cell[data-rep-uid]:not(.read-only)').forEach(cell => {
-    cell.addEventListener('click', () => openMoveModal(parseInt(cell.dataset.repUid, 10)));
+    cell.addEventListener('click', e => {
+      if (e.target.closest('.move-icon')) return;
+      toggleExcludeCard(parseInt(cell.dataset.repUid, 10));
+    });
+  });
+  // ↪ button — open the move-to-plant modal
+  document.querySelectorAll('.bucket-cell:not(.read-only) .move-icon').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      const cell = btn.closest('.bucket-cell');
+      if (cell) openMoveModal(parseInt(cell.dataset.repUid, 10));
+    });
   });
   // Cluster-level reject toggle
   document.querySelectorAll('button[data-cluster-action="reject"]').forEach(btn => {
