@@ -96,7 +96,7 @@
 
   /* ── Overlay + Modal ── */
   #overlay { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 100; display: flex; align-items: flex-end; justify-content: center; }
-  #overlay.hidden, #form-overlay.hidden, #lightbox.hidden, #bulk-bar.hidden, #analysis-overlay.hidden, #move-photo-overlay.hidden, #stats-overlay.hidden, #ask-overlay.hidden, #verify-overlay.hidden { display: none !important; }
+  #overlay.hidden, #form-overlay.hidden, #lightbox.hidden, #bulk-bar.hidden, #analysis-overlay.hidden, #move-photo-overlay.hidden, #stats-overlay.hidden, #ask-overlay.hidden, #verify-overlay.hidden, #pots-overlay.hidden { display: none !important; }
   .card.selected { outline: 3px solid var(--green); outline-offset: -1px; }
   .card .select-check { position: absolute; top: 6px; left: 6px; width: 24px; height: 24px; border-radius: 50%; background: rgba(0,0,0,.55); color: white; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700; z-index: 2; pointer-events: none; }
   .card.selected .select-check { background: var(--green); }
@@ -219,8 +219,8 @@
     </div>
     <input type="search" id="search" placeholder="Search by name, genus, or area…" autocomplete="off">
     <div id="tabs">
-      <button class="tab" data-tab="today">📋 Today<span id="today-count" style="display:none;margin-left:5px;background:var(--green);color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:8px"></span></button>
-      <button class="tab active" data-tab="all">All</button>
+      <button class="tab active" data-tab="today">📋 Today<span id="today-count" style="display:none;margin-left:5px;background:var(--green);color:white;font-size:10px;font-weight:700;padding:1px 6px;border-radius:8px"></span></button>
+      <button class="tab" data-tab="all">All</button>
       <button class="tab" data-tab="indoor">Indoor</button>
       <button class="tab" data-tab="outdoor">Outdoor</button>
       <button class="tab" data-tab="attention">⚠ Attention<span id="attention-count" style="display:none;margin-left:5px;background:var(--danger-bg);color:var(--danger-fg);font-size:10px;font-weight:700;padding:1px 6px;border-radius:8px"></span></button>
@@ -377,6 +377,11 @@
     </div>
 
     <div class="field-wrap">
+      <div class="field-label">Acquired <span style="font-weight:400;color:var(--muted);font-size:11px">— when you got this plant</span></div>
+      <input type="date" id="f-acquired" style="width:100%;padding:9px 11px;border-radius:10px;border:1.5px solid var(--border);font-size:13px;font-family:inherit;outline:none;background:white">
+    </div>
+
+    <div class="field-wrap">
       <label style="display:flex;align-items:center;gap:8px;padding:9px 11px;background:var(--danger-bg);border-radius:10px;color:var(--danger-fg);font-size:13px;font-weight:700;cursor:pointer">
         <input type="checkbox" id="f-toxic">
         ☠ Toxic to dogs
@@ -459,6 +464,20 @@
       <button id="stats-close" style="background:var(--soft);border:none;border-radius:50%;width:30px;height:30px;font-size:18px;cursor:pointer;color:var(--muted);font-family:inherit;line-height:1;padding:0;flex-shrink:0">×</button>
     </div>
     <div id="stats-body"></div>
+  </div>
+</div>
+
+<!-- ── Manage Pots modal: inventory of every container, with add/retire ── -->
+<div id="pots-overlay" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:135;display:flex;align-items:center;justify-content:center;padding:14px">
+  <div id="pots-modal" style="background:var(--cream);border-radius:18px;padding:0 18px 18px;max-width:560px;width:100%;max-height:92vh;overflow-y:auto;font-family:inherit;box-shadow:0 12px 40px rgba(0,0,0,.4)">
+    <div style="position:sticky;top:0;background:var(--cream);padding-top:18px;padding-bottom:10px;display:flex;justify-content:space-between;align-items:flex-start;gap:10px;border-bottom:1px solid var(--border);margin-bottom:14px;z-index:1">
+      <div style="flex:1;min-width:0">
+        <div style="font-family:'Fraunces',serif;font-size:18px;font-weight:700;line-height:1.2">🪴 Manage pots</div>
+        <div id="pots-subtitle" style="font-size:11px;color:var(--muted);margin-top:3px"></div>
+      </div>
+      <button id="pots-close" style="background:var(--soft);border:none;border-radius:50%;width:30px;height:30px;font-size:18px;cursor:pointer;color:var(--muted);font-family:inherit;line-height:1;padding:0;flex-shrink:0">×</button>
+    </div>
+    <div id="pots-body"></div>
   </div>
 </div>
 
@@ -552,8 +571,10 @@ let photoHistory = {};   // id -> [{url, ts, label}] newest-first
 let careEvents = {};     // plant_id -> events array (sorted newest-first)
 let hasSeasonalCol = false;  // set true after loadData if plants.seasonal_care exists
 let hasDeceasedCol = false;  // set true after loadData if plants.deceased_at exists (migration 006)
+let hasPotsTable  = false;  // set true after loadData if pots table exists (migration 007)
+let POTS = [];               // pots inventory rows from the pots table
 let selectedId = null;
-let tab = 'all';
+let tab = 'today';   // dashboard view — daily check-in is the primary landing
 let locFilter = 'all';
 let sortBy = localStorage.getItem('sortBy') || 'name';
 let selectMode = false;
@@ -799,6 +820,22 @@ async function loadData() {
   PLANTS = plantsRes.data || [];
   hasSeasonalCol = PLANTS.length > 0 && 'seasonal_care' in PLANTS[0];
   hasDeceasedCol = PLANTS.length > 0 && 'deceased_at' in PLANTS[0];
+
+  // Pots table is best-effort — if migration 007 isn't applied yet, the
+  // app degrades to the derived-only inventory from past plants.
+  try {
+    const potsRes = await sb.from('pots').select('*').order('label');
+    if (!potsRes.error) {
+      POTS = potsRes.data || [];
+      hasPotsTable = true;
+    } else {
+      POTS = [];
+      hasPotsTable = false;
+    }
+  } catch (e) {
+    POTS = [];
+    hasPotsTable = false;
+  }
   overrides = {};
   photoURLs = {};
   photoHistory = {};
@@ -972,18 +1009,43 @@ function getStatus(plant) { return overrides[plant.id]?.status || plant.status; 
 // nag the user for water or appear in any action list.
 function isActive(p) { return !p.archived_at && !p.deceased_at; }
 
-// Empty / available pots inventory. A pot is "available" if at least one
-// deceased/archived plant recorded it AND no active plant is currently
-// using it. Returns array of {pot, fromPlants:[{id,name,when,cause}]},
-// sorted alphabetically by pot label. No schema change — pure derivation
-// from existing plant records. If a pot was lost with the plant, the
-// user clears the Container field on the deceased record to remove it
-// from this list.
+// Active plants currently holding a given pot label (case-insensitive).
+function activePlantsForPot(label) {
+  const k = (label || '').trim().toLowerCase();
+  if (!k) return [];
+  return PLANTS.filter(isActive).filter(p => (p.pot || '').trim().toLowerCase() === k);
+}
+
+// All-time history of which plants held a given pot label (active or not).
+function plantsForPot(label) {
+  const k = (label || '').trim().toLowerCase();
+  if (!k) return [];
+  return PLANTS.filter(p => (p.pot || '').trim().toLowerCase() === k);
+}
+
+// Empty / available pots inventory.
+// When the pots table exists (migration 007), pull from there — it's the
+// ledger. Otherwise fall back to deriving from deceased/archived plants.
 function availablePots() {
+  if (hasPotsTable) {
+    return POTS
+      .filter(pot => !pot.retired_at)
+      .filter(pot => activePlantsForPot(pot.label).length === 0)
+      .map(pot => ({
+        pot: pot.label,
+        fromPlants: plantsForPot(pot.label).filter(p => !isActive(p)).map(p => ({
+          id: p.id,
+          name: p.name + (p.sub ? ' · ' + p.sub : ''),
+          when: p.deceased_at || p.archived_at,
+          cause: p.deceased_at ? 'lost' : 'archived',
+        })),
+        acquired_at: pot.acquired_at,
+      }))
+      .sort((a, b) => a.pot.localeCompare(b.pot));
+  }
+  // Pre-migration fallback: derive from deceased/archived plants only
   const usedByActive = new Set(
-    PLANTS.filter(isActive)
-      .map(p => (p.pot || '').trim())
-      .filter(Boolean)
+    PLANTS.filter(isActive).map(p => (p.pot || '').trim()).filter(Boolean)
   );
   const byPot = {};
   PLANTS.filter(p => !isActive(p)).forEach(p => {
@@ -1574,9 +1636,13 @@ function openModal(id) {
   const potCell = (p.pot && p.pot.trim())
     ? `<div class="meta-cell"><div class="meta-label">Container</div><div class="meta-val">${p.pot}</div></div>`
     : '';
+  const acquiredCell = p.created_at
+    ? `<div class="meta-cell"><div class="meta-label">Acquired</div><div class="meta-val">${new Date(p.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</div></div>`
+    : '';
   document.getElementById('meta-grid').innerHTML = `
     ${potCell}
     <div class="meta-cell"><div class="meta-label">Location</div><div class="meta-val">${p.loc}</div></div>
+    ${acquiredCell}
     <div class="meta-cell"><div class="meta-label">Plant ID</div><div class="meta-val" style="font-family:monospace;font-size:13px;color:var(--green);font-weight:700">${p.id}</div></div>`;
 
   document.getElementById('toxic-warn').style.display = p.toxic ? 'block' : 'none';
@@ -2551,23 +2617,22 @@ function openPlantForm(mode, plant) {
   document.getElementById('f-loc-options').innerHTML =
     locs.map(l => '<option value="' + l.replace(/"/g, '&quot;') + '">').join('');
 
-  // Populate pot datalist: available pots first (with hint), then all
-  // currently-in-use pots so the user can co-locate plants in the same
-  // container (e.g. two herbs sharing one planter).
-  const pots = availablePots().map(({ pot, fromPlants }) => ({
-    pot,
-    hint: ' — was ' + fromPlants[0].name,
-  }));
-  const inUsePots = [...new Set(PLANTS.filter(isActive).map(p => (p.pot || '').trim()).filter(Boolean))]
-    .filter(pot => !pots.find(x => x.pot === pot))
-    .map(pot => ({ pot, hint: '' }));
-  document.getElementById('f-pot-options').innerHTML =
-    [...pots, ...inUsePots]
-      .map(({ pot, hint }) =>
-        '<option value="' + pot.replace(/"/g, '&quot;') + '"' +
-        (hint ? ' label="' + (pot + hint).replace(/"/g, '&quot;') + '"' : '') +
-        '>'
-      ).join('');
+  // Populate pot datalist. Order: available pots first (labeled "available"),
+  // then in-use pots so the user can co-locate plants in the same container
+  // (e.g. two herbs sharing one planter). Uses pots table when present.
+  const allPots = hasPotsTable
+    ? POTS.filter(p => !p.retired_at).map(p => ({
+        pot: p.label,
+        inUse: activePlantsForPot(p.label).length > 0,
+      }))
+    : [...new Set(PLANTS.filter(isActive).map(p => (p.pot || '').trim()).filter(Boolean))]
+        .map(pot => ({ pot, inUse: true }));
+  const sortedPots = allPots.sort((a, b) => (a.inUse ? 1 : 0) - (b.inUse ? 1 : 0) || a.pot.localeCompare(b.pot));
+  document.getElementById('f-pot-options').innerHTML = sortedPots
+    .map(({ pot, inUse }) =>
+      '<option value="' + pot.replace(/"/g, '&quot;') + '"' +
+      ' label="' + (pot + (inUse ? '' : ' — available')).replace(/"/g, '&quot;') + '">'
+    ).join('');
 
   // Field defaults
   const t = plant?.type || 'indoor';
@@ -2584,6 +2649,12 @@ function openPlantForm(mode, plant) {
   document.getElementById('f-feed-every').value  = plant?.feed_every_days  ?? '';
   document.getElementById('f-seasonal').checked  = !!plant?.seasonal_care;
   document.getElementById('f-care-notes').value  = (plant && overrides[plant.id]?.care_notes) || '';
+  // Acquired date — populate from plant.created_at on edit, today on add
+  const acquired = plant?.created_at ? new Date(plant.created_at) : new Date();
+  const acqStr = acquired.getFullYear() + '-'
+    + String(acquired.getMonth() + 1).padStart(2, '0') + '-'
+    + String(acquired.getDate()).padStart(2, '0');
+  document.getElementById('f-acquired').value = acqStr;
   document.getElementById('f-status').value = plant?.status || '';
 
   // Initial-status field only matters for new plants; hide on edit
@@ -2625,6 +2696,11 @@ async function savePlant() {
   const seasonal_care = document.getElementById('f-seasonal').checked;
   const care_notes = document.getElementById('f-care-notes').value.trim() || null;
   const status = document.getElementById('f-status').value.trim() || null;
+  // Acquired date — convert YYYY-MM-DD from <input type="date"> to an ISO
+  // timestamp at noon local time so the date doesn't accidentally flip
+  // across UTC midnight in display
+  const acquiredStr = document.getElementById('f-acquired').value;
+  const acquired_at = acquiredStr ? new Date(acquiredStr + 'T12:00:00').toISOString() : null;
 
   if (!id || !name || !type || !loc) {
     alert('ID, Name, Type, and Location are required.');
@@ -2640,6 +2716,7 @@ async function savePlant() {
 
   const row = { id, name, sub, sci, type, loc, pot, toxic, water_every_days, feed_every_days, archived_at: null };
   if (hasSeasonalCol) row.seasonal_care = seasonal_care;
+  if (acquired_at) row.created_at = acquired_at;
   let res;
   if (formMode === 'add') {
     row.sort_order = PLANTS.length;   // append at end
@@ -2680,6 +2757,9 @@ async function savePlant() {
       alert('Plant saved, but care notes failed: ' + ovRes.error.message);
     }
   }
+
+  // Auto-add the pot to inventory if it's a new container label
+  if (pot) await ensurePotExists(pot);
 
   // Re-load so PLANTS reflects the new state, then refresh views
   await loadData();
@@ -3611,28 +3691,21 @@ function showStats() {
     </div>`
   );
 
-  // 🪴 Available pots — computed inventory from past plants
-  const pots = availablePots();
-  if (pots.length) {
-    const fmtDate = ms => ms ? new Date(ms).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : '';
-    sections.push(
-      `<div style="margin-bottom:18px">
-        <div class="field-label" style="margin-bottom:8px">🪴 Available pots <span style="font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0;font-size:11px">— ${pots.length} from past plants</span></div>
-        <div style="display:flex;flex-direction:column;gap:6px">
-          ${pots.map(({ pot, fromPlants }) => {
-            const sources = fromPlants.map(s =>
-              `<span style="color:var(--muted)">${escapeHtml(s.name)} · ${s.cause} ${fmtDate(s.when)}</span>`
-            ).join(', ');
-            return `<div style="padding:9px 11px;background:var(--soft);border-radius:8px;font-size:12px;line-height:1.5">
-              <div style="font-weight:700;color:var(--text)">${escapeHtml(pot)}</div>
-              <div style="margin-top:2px">was ${sources}</div>
-            </div>`;
-          }).join('')}
-        </div>
-        <div style="font-size:11px;color:var(--muted);margin-top:8px;line-height:1.4">When you add or edit a plant, the Container field will autocomplete from this list. To remove a pot (broken, given away), open the deceased/archived plant and clear its Container.</div>
-      </div>`
-    );
-  }
+  // 🪴 Pot inventory summary — links to the Manage Pots modal for full UI
+  const allPotsCount = hasPotsTable ? POTS.filter(p => !p.retired_at).length : 0;
+  const availPotsCount = availablePots().length;
+  const inUseCount = allPotsCount - availPotsCount;
+  sections.push(
+    `<div style="margin-bottom:18px;padding:12px;background:linear-gradient(135deg,rgba(124,58,237,.06),rgba(109,40,217,.06));border:1px solid rgba(124,58,237,.2);border-radius:10px">
+      <div style="font-size:13px;font-weight:700;color:var(--text);margin-bottom:4px">🪴 Pot inventory</div>
+      <div style="font-size:11px;color:var(--muted);line-height:1.5;margin-bottom:10px">
+        ${hasPotsTable
+          ? `<strong>${allPotsCount}</strong> pots tracked · <strong>${inUseCount}</strong> in use · <strong>${availPotsCount}</strong> available`
+          : `Migration 007 not applied yet. Run <code>migrations/007_pots.sql</code> in Supabase to enable full pot tracking.`}
+      </div>
+      <button id="open-pots-btn" ${hasPotsTable ? '' : 'disabled'} style="width:100%;padding:9px;background:linear-gradient(135deg,#7c3aed,#6d28d9);color:white;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;${hasPotsTable ? '' : 'opacity:.4;cursor:not-allowed'}">Open Manage Pots</button>
+    </div>`
+  );
 
   // Operational footer
   sections.push(
@@ -3668,9 +3741,201 @@ document.getElementById('stats-overlay').addEventListener('click', e => {
   if (e.target.id === 'stats-overlay') closeStats();
 });
 
-// "Verify all" lives inside stats body so the click handler is wired via delegation
+// "Verify all" + "Manage pots" live inside stats body — wire via delegation
 document.getElementById('stats-body').addEventListener('click', e => {
   if (e.target.id === 'verify-start-btn') startVerifySweep();
+  if (e.target.id === 'open-pots-btn')   openPotsModal();
+});
+
+// ── Manage Pots ─────────────────────────────────────────────────────────────
+function openPotsModal() {
+  if (!hasPotsTable) {
+    alert("Migration 007 hasn't been applied yet — run migrations/007_pots.sql in Supabase first.");
+    return;
+  }
+  closeStats();
+  renderPotsModal();
+  document.getElementById('pots-overlay').classList.remove('hidden');
+  document.body.style.overflow = 'hidden';
+}
+
+function closePotsModal() {
+  document.getElementById('pots-overlay').classList.add('hidden');
+  document.body.style.overflow = '';
+}
+
+function renderPotsModal() {
+  const active = POTS.filter(p => !p.retired_at).sort((a, b) => a.label.localeCompare(b.label));
+  const retired = POTS.filter(p => p.retired_at).sort((a, b) => new Date(b.retired_at) - new Date(a.retired_at));
+
+  const fmt = ms => new Date(ms).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+
+  document.getElementById('pots-subtitle').textContent =
+    `${active.length} in inventory · ${retired.length} retired`;
+
+  const potRow = pot => {
+    const holders = activePlantsForPot(pot.label);
+    const status = holders.length
+      ? `<span style="color:var(--text)">In use by <strong>${holders.map(p => escapeHtml(p.name)).join(', ')}</strong></span>`
+      : `<span style="color:var(--good-fg);font-weight:700">Available</span>`;
+    return `
+      <div class="pot-row" data-pot-id="${pot.id}" style="display:flex;align-items:flex-start;gap:10px;padding:12px;border-bottom:1px solid var(--border)">
+        <div style="flex:1;min-width:0">
+          <div style="font-size:14px;font-weight:700;line-height:1.25">${escapeHtml(pot.label)}</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:3px">Acquired ${fmt(pot.acquired_at)}</div>
+          <div style="font-size:12px;margin-top:5px">${status}</div>
+          ${pot.notes ? `<div style="font-size:11px;color:var(--muted);margin-top:3px;font-style:italic">${escapeHtml(pot.notes)}</div>` : ''}
+        </div>
+        <button class="pot-retire-btn" data-pot-id="${pot.id}" ${holders.length ? 'disabled title="Move the plant out first"' : ''} style="background:transparent;border:1.5px solid var(--border);color:var(--muted);border-radius:8px;padding:6px 10px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;flex-shrink:0;${holders.length ? 'opacity:.4;cursor:not-allowed' : ''}">Retire</button>
+      </div>`;
+  };
+
+  const retiredRow = pot => `
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;padding:10px;border-bottom:1px solid var(--border);font-size:12px;color:var(--muted)">
+      <div>
+        <div style="font-weight:700;text-decoration:line-through">${escapeHtml(pot.label)}</div>
+        <div style="font-size:11px;margin-top:2px">Retired ${fmt(pot.retired_at)}${pot.retired_reason ? ' · ' + escapeHtml(pot.retired_reason) : ''}</div>
+      </div>
+      <button class="pot-restore-btn" data-pot-id="${pot.id}" style="background:transparent;border:1.5px solid var(--green);color:var(--green);border-radius:8px;padding:5px 9px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;flex-shrink:0">↩ Restore</button>
+    </div>`;
+
+  document.getElementById('pots-body').innerHTML = `
+    <div style="margin-bottom:14px">
+      <div style="display:flex;gap:8px;margin-bottom:10px">
+        <input type="text" id="new-pot-label" placeholder="New pot label (e.g. Terracotta 8-inch)" style="flex:1;padding:9px 11px;border-radius:10px;border:1.5px solid var(--border);font-size:13px;font-family:inherit;outline:none;background:white">
+        <button id="new-pot-add-btn" style="background:var(--green);color:white;border:none;border-radius:10px;padding:9px 14px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap">+ Add</button>
+      </div>
+      <div style="font-size:11px;color:var(--muted)">Added pots get today's date as their acquired date. Edit the date later by clicking the pot.</div>
+    </div>
+    ${active.length === 0
+      ? `<div style="text-align:center;padding:32px 16px;color:var(--muted);font-size:13px;font-style:italic">No pots in inventory yet. Add one above, or it'll auto-populate when you add plants.</div>`
+      : `<div style="margin-bottom:18px">${active.map(potRow).join('')}</div>`}
+    ${retired.length ? `
+      <details style="margin-top:18px">
+        <summary style="cursor:pointer;font-size:12px;font-weight:700;color:var(--muted);padding:8px 0">Retired pots (${retired.length})</summary>
+        <div>${retired.map(retiredRow).join('')}</div>
+      </details>` : ''}
+  `;
+
+  // Wire interactions
+  document.getElementById('new-pot-add-btn').addEventListener('click', addNewPot);
+  document.getElementById('new-pot-label').addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); addNewPot(); }
+  });
+  document.querySelectorAll('.pot-retire-btn').forEach(btn => {
+    btn.addEventListener('click', () => retirePot(btn.dataset.potId));
+  });
+  document.querySelectorAll('.pot-restore-btn').forEach(btn => {
+    btn.addEventListener('click', () => restorePot(btn.dataset.potId));
+  });
+  document.querySelectorAll('.pot-row').forEach(row => {
+    row.addEventListener('click', e => {
+      if (e.target.closest('button')) return;  // don't intercept buttons
+      editPotInline(row.dataset.potId);
+    });
+  });
+}
+
+async function addNewPot() {
+  const input = document.getElementById('new-pot-label');
+  const label = input.value.trim();
+  if (!label) return;
+  // Case-insensitive dup check
+  const existing = POTS.find(p => p.label.toLowerCase() === label.toLowerCase() && !p.retired_at);
+  if (existing) {
+    alert(`"${existing.label}" is already in inventory.`);
+    return;
+  }
+  const addBtn = document.getElementById('new-pot-add-btn');
+  addBtn.disabled = true;
+  addBtn.innerHTML = '<span class="spin"></span>';
+  const { data, error } = await withKey('add pot', () =>
+    sb.from('pots').insert({ label, acquired_at: new Date().toISOString() }).select().single()
+  );
+  if (error) {
+    alert('Add pot failed: ' + error.message);
+    addBtn.disabled = false;
+    addBtn.textContent = '+ Add';
+    return;
+  }
+  POTS.push(data);
+  input.value = '';
+  renderPotsModal();
+}
+
+async function retirePot(potId) {
+  const pot = POTS.find(p => p.id === potId);
+  if (!pot) return;
+  const holders = activePlantsForPot(pot.label);
+  if (holders.length) {
+    alert(`"${pot.label}" is currently holding ${holders.map(p => p.name).join(', ')}. Move them out first.`);
+    return;
+  }
+  const reason = prompt(`Retiring "${pot.label}". Optional reason (broken, gave away, etc.) — leave blank to skip:`, '');
+  if (reason === null) return;  // cancelled
+  const { data, error } = await withKey('retire pot', () =>
+    sb.from('pots').update({
+      retired_at: new Date().toISOString(),
+      retired_reason: reason.trim() || null,
+    }).eq('id', potId).select().single()
+  );
+  if (error) { alert('Retire failed: ' + error.message); return; }
+  Object.assign(pot, data);
+  renderPotsModal();
+}
+
+async function restorePot(potId) {
+  const pot = POTS.find(p => p.id === potId);
+  if (!pot) return;
+  // Check the active inventory doesn't already have an identical label
+  const dup = POTS.find(p => p.label.toLowerCase() === pot.label.toLowerCase() && !p.retired_at && p.id !== potId);
+  if (dup) {
+    if (!confirm(`Another active pot is already labeled "${dup.label}". Restore anyway?`)) return;
+  }
+  const { data, error } = await withKey('restore pot', () =>
+    sb.from('pots').update({ retired_at: null, retired_reason: null }).eq('id', potId).select().single()
+  );
+  if (error) { alert('Restore failed: ' + error.message); return; }
+  Object.assign(pot, data);
+  renderPotsModal();
+}
+
+function editPotInline(potId) {
+  const pot = POTS.find(p => p.id === potId);
+  if (!pot) return;
+  const newLabel = prompt(`Rename "${pot.label}":\n(this updates the inventory record; it does NOT rename the Container field on plants currently using this label)`, pot.label);
+  if (!newLabel || newLabel.trim() === pot.label) return;
+  updatePotLabel(potId, newLabel.trim());
+}
+
+async function updatePotLabel(potId, newLabel) {
+  const { data, error } = await withKey('rename pot', () =>
+    sb.from('pots').update({ label: newLabel }).eq('id', potId).select().single()
+  );
+  if (error) { alert('Rename failed: ' + error.message); return; }
+  const pot = POTS.find(p => p.id === potId);
+  if (pot) Object.assign(pot, data);
+  renderPotsModal();
+}
+
+// Auto-add: when a plant is saved with a Container value not yet tracked,
+// insert a new pot row silently. Called from savePlant.
+async function ensurePotExists(label) {
+  if (!hasPotsTable) return;
+  const k = (label || '').trim();
+  if (!k) return;
+  const existing = POTS.find(p => p.label.toLowerCase() === k.toLowerCase() && !p.retired_at);
+  if (existing) return;
+  const { data, error } = await withKey('auto-add pot', () =>
+    sb.from('pots').insert({ label: k, acquired_at: new Date().toISOString() }).select().single()
+  );
+  if (error) { console.warn('Auto-add pot failed:', error.message); return; }
+  POTS.push(data);
+}
+
+document.getElementById('pots-close').addEventListener('click', closePotsModal);
+document.getElementById('pots-overlay').addEventListener('click', e => {
+  if (e.target.id === 'pots-overlay') closePotsModal();
 });
 
 // ── Verify-all sweep (Phase 5) ──────────────────────────────────────────────

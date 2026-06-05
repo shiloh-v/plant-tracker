@@ -23,6 +23,7 @@ Apply each in order via Supabase SQL Editor:
 4. [migrations/004_health.sql](migrations/004_health.sql) — health enum on plant_overrides
 5. [migrations/005_care_notes.sql](migrations/005_care_notes.sql) — sticky care_notes field
 6. [migrations/006_deceased.sql](migrations/006_deceased.sql) — deceased_at timestamp for plants that didn't survive
+7. [migrations/007_pots.sql](migrations/007_pots.sql) — pots inventory table with acquired_at + retired_at (auto-backfills from existing plant.pot strings)
 
 After 001, run [scripts/seed.html](scripts/seed.html) once to import the initial plants.
 
