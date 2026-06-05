@@ -96,7 +96,7 @@
 
   /* ── Overlay + Modal ── */
   #overlay { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 100; display: flex; align-items: flex-end; justify-content: center; }
-  #overlay.hidden, #form-overlay.hidden, #lightbox.hidden, #bulk-bar.hidden, #analysis-overlay.hidden, #move-photo-overlay.hidden, #stats-overlay.hidden { display: none !important; }
+  #overlay.hidden, #form-overlay.hidden, #lightbox.hidden, #bulk-bar.hidden, #analysis-overlay.hidden, #move-photo-overlay.hidden, #stats-overlay.hidden, #ask-overlay.hidden { display: none !important; }
   .card.selected { outline: 3px solid var(--green); outline-offset: -1px; }
   .card .select-check { position: absolute; top: 6px; left: 6px; width: 24px; height: 24px; border-radius: 50%; background: rgba(0,0,0,.55); color: white; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700; z-index: 2; pointer-events: none; }
   .card.selected .select-check { background: var(--green); }
@@ -227,6 +227,7 @@
     </div>
     <button id="analyze-btn" style="display:none;width:100%;margin-top:10px;padding:10px 16px;background:linear-gradient(135deg,#7c3aed,#6d28d9);color:white;border:none;border-radius:12px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;box-shadow:0 2px 8px rgba(124,58,237,.3)">🔍 Analyze with AI</button>
     <div id="analyze-last" style="display:none;font-size:11px;color:var(--muted);text-align:center;margin-top:5px"></div>
+    <button id="ask-btn" style="width:100%;margin-top:8px;padding:10px 16px;background:transparent;color:var(--green);border:1.5px solid var(--green);border-radius:12px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">💬 Ask about this plant</button>
     <div class="meta-grid" id="meta-grid"></div>
     <div id="toxic-warn" class="toxic-warn" style="display:none">☠ TOXIC TO DOGS — keep away from pets</div>
     <div id="care-section" class="field-wrap"></div>
@@ -372,6 +373,28 @@
   <button data-bulk-kind="water"   style="background:var(--cream);color:var(--green);border:none;border-radius:18px;padding:8px 14px;font-size:13px;font-weight:700;font-family:inherit;cursor:pointer">💧 Water</button>
   <button data-bulk-kind="feed"    style="background:var(--cream);color:var(--green);border:none;border-radius:18px;padding:8px 14px;font-size:13px;font-weight:700;font-family:inherit;cursor:pointer">🍴 Feed</button>
   <button id="bulk-analyze-btn"    style="background:linear-gradient(135deg,#7c3aed,#6d28d9);color:white;border:none;border-radius:18px;padding:8px 14px;font-size:13px;font-weight:700;font-family:inherit;cursor:pointer">🔍 Analyze</button>
+</div>
+
+<!-- ── Ask-about-plant modal ── -->
+<div id="ask-overlay" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:140;display:flex;align-items:flex-end;justify-content:center">
+  <div id="ask-modal" style="background:var(--cream);border-radius:18px 18px 0 0;padding:0 18px 18px;max-width:520px;width:100%;max-height:92vh;display:flex;flex-direction:column;font-family:inherit;box-shadow:0 -8px 30px rgba(0,0,0,.35)">
+    <div style="position:sticky;top:0;background:var(--cream);padding:14px 0 10px;display:flex;justify-content:space-between;align-items:flex-start;gap:10px;border-bottom:1px solid var(--border)">
+      <div style="flex:1;min-width:0">
+        <div style="font-family:'Fraunces',serif;font-size:17px;font-weight:700;line-height:1.2">💬 Ask about <span id="ask-modal-plant">this plant</span></div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px">Multi-turn — follow-up questions keep context</div>
+      </div>
+      <button id="ask-close" style="background:var(--soft);border:none;border-radius:50%;width:30px;height:30px;font-size:18px;cursor:pointer;color:var(--muted);font-family:inherit;line-height:1;padding:0;flex-shrink:0">×</button>
+    </div>
+    <div id="ask-conversation" style="flex:1;overflow-y:auto;padding:14px 0;display:flex;flex-direction:column;gap:10px;min-height:120px"></div>
+    <div style="border-top:1px solid var(--border);padding-top:12px">
+      <textarea id="ask-input" rows="2" placeholder="e.g. Could this be aphids? Or: Is this really an African Violet?" style="width:100%;padding:9px 11px;border-radius:10px;border:1.5px solid var(--border);font-size:13px;font-family:inherit;outline:none;background:white;resize:vertical;box-sizing:border-box"></textarea>
+      <div style="display:flex;gap:8px;margin-top:8px;align-items:center">
+        <button id="ask-save-to-notes" style="background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:10px;padding:7px 11px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;flex-shrink:0;display:none">💾 Save to notes</button>
+        <div style="flex:1"></div>
+        <button id="ask-send" style="background:var(--green);color:white;border:none;border-radius:10px;padding:9px 18px;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">Ask</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- ── Stats dashboard modal ── -->
@@ -2242,6 +2265,182 @@ async function analyzeCurrentPlant() {
 }
 
 document.getElementById('analyze-btn').addEventListener('click', analyzeCurrentPlant);
+
+// ── Ask-about-plant chat ────────────────────────────────────────────────────
+let askConversation = []; // [{role, content}] for the currently open chat
+let askPlantId = null;
+
+function openAskModal() {
+  if (!selectedId) return;
+  askPlantId = selectedId;
+  askConversation = [];
+  const plant = PLANTS.find(p => p.id === askPlantId);
+  document.getElementById('ask-modal-plant').textContent = plant
+    ? plant.name + (plant.sub ? ' — ' + plant.sub : '')
+    : 'this plant';
+  document.getElementById('ask-conversation').innerHTML =
+    '<div style="font-size:13px;color:var(--muted);font-style:italic;text-align:center;padding:18px">' +
+    'Ask anything: "Could this be aphids?" · "Is this really an African Violet?" · "Why is the lower leaf yellow?"' +
+    '</div>';
+  document.getElementById('ask-input').value = '';
+  document.getElementById('ask-input').focus();
+  document.getElementById('ask-save-to-notes').style.display = 'none';
+  document.getElementById('ask-overlay').classList.remove('hidden');
+}
+
+function closeAskModal() {
+  document.getElementById('ask-overlay').classList.add('hidden');
+  askPlantId = null;
+  askConversation = [];
+}
+
+function renderAskBubble(role, text) {
+  const isUser = role === 'user';
+  return '<div style="display:flex;justify-content:' + (isUser ? 'flex-end' : 'flex-start') + '">' +
+    '<div style="max-width:85%;padding:9px 12px;border-radius:12px;font-size:13px;line-height:1.45;white-space:pre-wrap;' +
+      (isUser
+        ? 'background:var(--green);color:white;border-bottom-right-radius:4px'
+        : 'background:var(--soft);color:var(--text);border-bottom-left-radius:4px') +
+    '">' + text.replace(/</g, '&lt;').replace(/\n/g, '<br>') + '</div>' +
+  '</div>';
+}
+
+function renderAskConversation() {
+  const wrap = document.getElementById('ask-conversation');
+  if (askConversation.length === 0) return;
+  wrap.innerHTML = askConversation.map(m => renderAskBubble(m.role, m.content)).join('');
+  // Scroll to bottom so the latest reply is visible
+  wrap.scrollTop = wrap.scrollHeight;
+}
+
+async function sendAskQuestion() {
+  const input = document.getElementById('ask-input');
+  const sendBtn = document.getElementById('ask-send');
+  const question = input.value.trim();
+  if (!question || !askPlantId) return;
+
+  if (!plantKey) {
+    const ok = await promptPassphrase('Enter your passphrase to ask AI.');
+    if (!ok) return;
+  }
+
+  // Optimistic: render the question + typing indicator
+  askConversation.push({ role: 'user', content: question });
+  renderAskConversation();
+  input.value = '';
+  sendBtn.disabled = true;
+  sendBtn.innerHTML = '<span class="spin"></span>';
+
+  const wrap = document.getElementById('ask-conversation');
+  const typingEl = document.createElement('div');
+  typingEl.style.cssText = 'display:flex;justify-content:flex-start';
+  typingEl.innerHTML = '<div style="background:var(--soft);color:var(--muted);padding:9px 12px;border-radius:12px;font-size:13px;font-style:italic">Thinking…</div>';
+  wrap.appendChild(typingEl);
+  wrap.scrollTop = wrap.scrollHeight;
+
+  try {
+    const resp = await fetch('/api/ask-plant', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-plant-key': plantKey },
+      body: JSON.stringify({ plantId: askPlantId, conversation: askConversation }),
+    });
+    typingEl.remove();
+
+    if (resp.status === 401) {
+      const ok = await promptPassphrase('Server rejected the passphrase. Enter it again.');
+      // Roll the question back so they can resend
+      askConversation.pop();
+      input.value = question;
+      renderAskConversation();
+      sendBtn.disabled = false;
+      sendBtn.textContent = 'Ask';
+      return;
+    }
+
+    const body = await resp.json();
+    if (!resp.ok) {
+      // Roll back, show error in conversation
+      askConversation.pop();
+      askConversation.push({ role: 'user', content: question });
+      askConversation.push({ role: 'assistant', content: '⚠ Error: ' + (body.message || body.error || 'HTTP ' + resp.status) });
+      renderAskConversation();
+      sendBtn.disabled = false;
+      sendBtn.textContent = 'Ask';
+      return;
+    }
+
+    askConversation.push({ role: 'assistant', content: body.answer || '(no response)' });
+    renderAskConversation();
+    document.getElementById('ask-save-to-notes').style.display = 'inline-block';
+  } catch (err) {
+    typingEl.remove();
+    askConversation.push({ role: 'assistant', content: '⚠ Network error: ' + err.message });
+    renderAskConversation();
+  } finally {
+    sendBtn.disabled = false;
+    sendBtn.textContent = 'Ask';
+    input.focus();
+  }
+}
+
+async function saveAskConversationToNotes() {
+  if (!askPlantId || askConversation.length === 0) return;
+  const btn = document.getElementById('ask-save-to-notes');
+  btn.disabled = true;
+  btn.textContent = 'Saving…';
+
+  const today = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  const transcript = askConversation
+    .map(m => (m.role === 'user' ? 'Q' : 'A') + ': ' + m.content)
+    .join('\n');
+  const blockText = `[${today} Q&A session]\n${transcript}`;
+
+  const existing = overrides[askPlantId] || {};
+  const newNotes = existing.notes ? existing.notes + '\n\n' + blockText : blockText;
+
+  const { error } = await withKey('save Q&A to notes', () =>
+    sb.from('plant_overrides').upsert({
+      id: askPlantId,
+      notes: newNotes,
+      updated_at: new Date().toISOString(),
+    }).select(),
+    { expectRows: true }
+  );
+
+  if (error) {
+    alert('Save failed: ' + error.message);
+    btn.disabled = false;
+    btn.textContent = '💾 Save to notes';
+    return;
+  }
+
+  overrides[askPlantId] = { ...existing, notes: newNotes };
+  if (selectedId === askPlantId) {
+    const notesDisplay = document.getElementById('notes-display');
+    notesDisplay.textContent = newNotes;
+    notesDisplay.className = 'notes-display has-notes';
+  }
+  btn.textContent = '✓ Saved';
+  setTimeout(() => {
+    btn.textContent = '💾 Save to notes';
+    btn.disabled = false;
+  }, 1500);
+}
+
+document.getElementById('ask-btn').addEventListener('click', openAskModal);
+document.getElementById('ask-close').addEventListener('click', closeAskModal);
+document.getElementById('ask-overlay').addEventListener('click', e => {
+  if (e.target.id === 'ask-overlay') closeAskModal();
+});
+document.getElementById('ask-send').addEventListener('click', sendAskQuestion);
+document.getElementById('ask-input').addEventListener('keydown', e => {
+  // Cmd/Ctrl+Enter sends; plain Enter inserts newline (multi-line textarea)
+  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+    e.preventDefault();
+    sendAskQuestion();
+  }
+});
+document.getElementById('ask-save-to-notes').addEventListener('click', saveAskConversationToNotes);
 
 // ── Post-analysis summary modal ─────────────────────────────────────────────
 function showAnalysisModal(plantId, analysis) {
