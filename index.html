@@ -1231,8 +1231,14 @@ function renderCareSection(id) {
       btn.innerHTML = '<span class="spin"></span> Logging…';
       const ok = await logCareEvent(id, kind, notes);
       btn.disabled = false;
-      if (ok) renderCareSection(id);
-      else btn.innerHTML = original;
+      if (ok) {
+        renderCareSection(id);
+        // Re-render the grid behind the modal so the Attention badge,
+        // card health, and any cadence-driven UI all reflect the new event
+        renderGrid();
+      } else {
+        btn.innerHTML = original;
+      }
     };
     attachLongPress(
       btn,
