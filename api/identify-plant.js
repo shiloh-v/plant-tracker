@@ -47,15 +47,11 @@ const ID_SCHEMA = {
     },
     water_every_days: {
       type: 'integer',
-      minimum: 1,
-      maximum: 180,
-      description: 'Starting watering cadence in days for a typical indoor/outdoor setup. Be realistic: succulents 14-21, tropicals 5-10, ferns 3-5, annual vegetables 2-3.'
+      description: 'Starting watering cadence in days for a typical indoor/outdoor setup (must be between 1 and 180). Be realistic: succulents 14-21, tropicals 5-10, ferns 3-5, annual vegetables 2-3.'
     },
     feed_every_days: {
       type: 'integer',
-      minimum: 7,
-      maximum: 365,
-      description: 'Starting feeding cadence in days. Conservative — better to under-feed than burn roots. Succulents 60-90, tropicals 30, annual veg 14, slow growers 60+.'
+      description: 'Starting feeding cadence in days (must be between 7 and 365). Conservative — better to under-feed than burn roots. Succulents 60-90, tropicals 30, annual veg 14, slow growers 60+.'
     },
     care_notes: {
       type: 'string',

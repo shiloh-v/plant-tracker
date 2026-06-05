@@ -57,15 +57,11 @@ const VERIFY_SCHEMA = {
     },
     proposed_water_every_days: {
       type: 'integer',
-      minimum: 1,
-      maximum: 180,
-      description: 'Recommended watering cadence in days. Succulents 14-21, tropicals 5-10, ferns 3-5, annual vegetables 2-3. Use the recorded value if it is reasonable for this species.'
+      description: 'Recommended watering cadence in days (must be between 1 and 180). Succulents 14-21, tropicals 5-10, ferns 3-5, annual vegetables 2-3. Use the recorded value if it is reasonable for this species.'
     },
     proposed_feed_every_days: {
       type: 'integer',
-      minimum: 7,
-      maximum: 365,
-      description: 'Recommended feeding cadence in days. Conservative — better to under-feed. Succulents 60-90, tropicals 30, annual veg 14. Use the recorded value if it is reasonable.'
+      description: 'Recommended feeding cadence in days (must be between 7 and 365). Conservative — better to under-feed. Succulents 60-90, tropicals 30, annual veg 14. Use the recorded value if it is reasonable.'
     },
     proposed_care_notes: {
       type: 'string',
