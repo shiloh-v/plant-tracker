@@ -372,7 +372,8 @@
 
     <div class="field-wrap">
       <div class="field-label">Container / pot <span style="font-weight:400;color:var(--muted);font-size:11px">— leave blank if in-ground or in a bed</span></div>
-      <input type="text" id="f-pot" style="width:100%;padding:9px 11px;border-radius:10px;border:1.5px solid var(--border);font-size:13px;font-family:inherit;outline:none;background:white" placeholder="e.g. White ceramic 6-inch · skip for in-ground">
+      <input type="text" id="f-pot" list="f-pot-options" style="width:100%;padding:9px 11px;border-radius:10px;border:1.5px solid var(--border);font-size:13px;font-family:inherit;outline:none;background:white" placeholder="e.g. White ceramic 6-inch · skip for in-ground">
+      <datalist id="f-pot-options"></datalist>
     </div>
 
     <div class="field-wrap">
@@ -970,6 +971,35 @@ function getStatus(plant) { return overrides[plant.id]?.status || plant.status; 
 // the database for memorial / care-timeline reference but should never
 // nag the user for water or appear in any action list.
 function isActive(p) { return !p.archived_at && !p.deceased_at; }
+
+// Empty / available pots inventory. A pot is "available" if at least one
+// deceased/archived plant recorded it AND no active plant is currently
+// using it. Returns array of {pot, fromPlants:[{id,name,when,cause}]},
+// sorted alphabetically by pot label. No schema change — pure derivation
+// from existing plant records. If a pot was lost with the plant, the
+// user clears the Container field on the deceased record to remove it
+// from this list.
+function availablePots() {
+  const usedByActive = new Set(
+    PLANTS.filter(isActive)
+      .map(p => (p.pot || '').trim())
+      .filter(Boolean)
+  );
+  const byPot = {};
+  PLANTS.filter(p => !isActive(p)).forEach(p => {
+    const pot = (p.pot || '').trim();
+    if (!pot || usedByActive.has(pot)) return;
+    (byPot[pot] = byPot[pot] || []).push({
+      id: p.id,
+      name: p.name + (p.sub ? ' · ' + p.sub : ''),
+      when: p.deceased_at || p.archived_at,
+      cause: p.deceased_at ? 'lost' : 'archived',
+    });
+  });
+  return Object.entries(byPot)
+    .map(([pot, fromPlants]) => ({ pot, fromPlants }))
+    .sort((a, b) => a.pot.localeCompare(b.pot));
+}
 
 // True if a plant should surface in the "Attention" tab. Health is the
 // primary signal (watch / struggling / critical); overdue water/feed is the
@@ -2521,6 +2551,24 @@ function openPlantForm(mode, plant) {
   document.getElementById('f-loc-options').innerHTML =
     locs.map(l => '<option value="' + l.replace(/"/g, '&quot;') + '">').join('');
 
+  // Populate pot datalist: available pots first (with hint), then all
+  // currently-in-use pots so the user can co-locate plants in the same
+  // container (e.g. two herbs sharing one planter).
+  const pots = availablePots().map(({ pot, fromPlants }) => ({
+    pot,
+    hint: ' — was ' + fromPlants[0].name,
+  }));
+  const inUsePots = [...new Set(PLANTS.filter(isActive).map(p => (p.pot || '').trim()).filter(Boolean))]
+    .filter(pot => !pots.find(x => x.pot === pot))
+    .map(pot => ({ pot, hint: '' }));
+  document.getElementById('f-pot-options').innerHTML =
+    [...pots, ...inUsePots]
+      .map(({ pot, hint }) =>
+        '<option value="' + pot.replace(/"/g, '&quot;') + '"' +
+        (hint ? ' label="' + (pot + hint).replace(/"/g, '&quot;') + '"' : '') +
+        '>'
+      ).join('');
+
   // Field defaults
   const t = plant?.type || 'indoor';
   document.querySelectorAll('input[name="f-type"]').forEach(r => { r.checked = (r.value === t); });
@@ -2646,7 +2694,9 @@ async function savePlant() {
 async function archivePlant() {
   if (!selectedId) return;
   const p = PLANTS.find(x => x.id === selectedId);
-  if (!confirm('Archive "' + (p?.name || selectedId) + '"? It will be hidden from the grid. You can unarchive it later from the Supabase dashboard.')) return;
+  const potLabelA = (p?.pot || '').trim();
+  const potNoteA = potLabelA ? `\n\n🪴 The pot "${potLabelA}" will become available for reuse (visible in Stats + autocomplete on new plants).` : '';
+  if (!confirm('Archive "' + (p?.name || selectedId) + '"? It will be hidden from the grid. You can unarchive it later from the Supabase dashboard.' + potNoteA)) return;
 
   const btn = document.getElementById('archive-btn');
   btn.innerHTML = '<span class="spin"></span> Archiving…';
@@ -2678,7 +2728,11 @@ async function markDeceased() {
     return;
   }
   const p = PLANTS.find(x => x.id === selectedId);
-  if (!confirm('Mark "' + (p?.name || selectedId) + '" as not surviving? The plant stays in your records (memorial / care timeline) but won\'t prompt for water, feed, or AI review. You can restore it later if you change your mind.')) return;
+  const potLabel = (p?.pot || '').trim();
+  const potNote = potLabel
+    ? `\n\n🪴 The pot "${potLabel}" will become available for reuse — it'll show up in Stats and as an autocomplete when you add a new plant. (If the pot was lost with the plant, edit the deceased record afterward and clear the Container field.)`
+    : '';
+  if (!confirm('Mark "' + (p?.name || selectedId) + '" as not surviving? The plant stays in your records (memorial / care timeline) but won\'t prompt for water, feed, or AI review. You can restore it later if you change your mind.' + potNote)) return;
 
   const btn = document.getElementById('deceased-btn');
   btn.innerHTML = '<span class="spin"></span> Marking…';
@@ -3556,6 +3610,29 @@ function showStats() {
       </div>
     </div>`
   );
+
+  // 🪴 Available pots — computed inventory from past plants
+  const pots = availablePots();
+  if (pots.length) {
+    const fmtDate = ms => ms ? new Date(ms).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : '';
+    sections.push(
+      `<div style="margin-bottom:18px">
+        <div class="field-label" style="margin-bottom:8px">🪴 Available pots <span style="font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0;font-size:11px">— ${pots.length} from past plants</span></div>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          ${pots.map(({ pot, fromPlants }) => {
+            const sources = fromPlants.map(s =>
+              `<span style="color:var(--muted)">${escapeHtml(s.name)} · ${s.cause} ${fmtDate(s.when)}</span>`
+            ).join(', ');
+            return `<div style="padding:9px 11px;background:var(--soft);border-radius:8px;font-size:12px;line-height:1.5">
+              <div style="font-weight:700;color:var(--text)">${escapeHtml(pot)}</div>
+              <div style="margin-top:2px">was ${sources}</div>
+            </div>`;
+          }).join('')}
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-top:8px;line-height:1.4">When you add or edit a plant, the Container field will autocomplete from this list. To remove a pot (broken, given away), open the deceased/archived plant and clear its Container.</div>
+      </div>`
+    );
+  }
 
   // Operational footer
   sections.push(
