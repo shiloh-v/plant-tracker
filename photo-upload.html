@@ -1260,9 +1260,9 @@ const MATCH_BATCH_SIZE   = 5;        // small batches so total payload stays und
 const MATCH_TEST_SIZE    = 30;       // bigger test batch for clustering — need enough photos to see groups form
 const CARD_THUMB_PX      = 460;      // fresh card images per call
 const CARD_THUMB_QUALITY = 0.74;
-const CENTROID_THUMB_PX  = 280;      // big enough for AI to recognize matches — shrinking too far causes over-clustering
-const CENTROID_THUMB_QUALITY = 0.70;
-const MAX_CENTROIDS      = 55;       // cap centroids per call; biggest clusters win the slots
+const CENTROID_THUMB_PX  = 320;      // bumped — recognition quality matters more than payload size
+const CENTROID_THUMB_QUALITY = 0.74;
+const MAX_CENTROIDS      = 65;       // more existing clusters in play per call = fewer false singletons
 const DHASH_THRESHOLD    = 5;        // <=5 bits diff out of 64 → "near-duplicate"
 
 let clusterState = null;             // see resetClusterState()
@@ -1890,13 +1890,18 @@ function clusterCellHtml(repUid, groupSize, clusterId, readOnly) {
 
 function reviewSummaryHtml() {
   const t = computeReviewTotals();
+  const unlabeledClusters = countUnlabeledClusters();
+  const keepHint = unlabeledClusters > 0
+    ? '<div style="font-size:11px;color:var(--muted);margin-top:4px"><strong>' + unlabeledClusters + '</strong> unlabeled cluster' + (unlabeledClusters === 1 ? '' : 's') + ' will be kept for next time.</div>'
+    : '';
   return (
     '<div class="review-summary" id="review-summary">' +
-      '<div class="counts">' +
-        '<span id="rs-labeled">' + t.labeled + '</span> labeled · ' +
+      '<div class="counts" style="flex:1;min-width:0">' +
+        '<div><span id="rs-labeled">' + t.labeled + '</span> labeled · ' +
         '<span id="rs-unlabeled">' + t.unlabeled + '</span> unlabeled · ' +
         '<span id="rs-excluded">' + t.excluded + '</span> excluded · ' +
-        '<span id="rs-skipped">' + t.skipped + '</span> skipped' +
+        '<span id="rs-skipped">' + t.skipped + '</span> skipped</div>' +
+        keepHint +
       '</div>' +
       '<div class="actions">' +
         '<button class="ghost" data-step="discard">Discard all</button>' +
@@ -1904,6 +1909,14 @@ function reviewSummaryHtml() {
       '</div>' +
     '</div>'
   );
+}
+
+function countUnlabeledClusters() {
+  let n = 0;
+  for (const c of clusterState.clusters.values()) {
+    if (!c.plantId && !clusterState.rejected.has(c.id)) n++;
+  }
+  return n;
 }
 
 function computeReviewTotals() {
@@ -2234,8 +2247,36 @@ async function handleStepClick(step) {
       const absorbed = small.length - newSmall;
       showToast('Consolidation complete — ' + absorbed + ' of ' + small.length + ' small clusters absorbed. Spent ~$' + estimateCostUSD(usage).toFixed(3) + '.');
     } else if (step === 'apply') {
-      applyClusterLabels();
-      clearPersistedClusterSession();
+      const result = applyClusterLabels();
+      // Remove only the clusters we just committed (labeled & not rejected)
+      // plus explicitly-skipped clusters. Anything still unlabeled stays
+      // in localStorage so the user can keep labeling next time without
+      // paying for re-clustering.
+      const removedIds = [];
+      for (const cluster of [...s.clusters.values()]) {
+        const wasApplied = cluster.plantId && !s.rejected.has(cluster.id);
+        const wasSkipped = s.rejected.has(cluster.id);
+        if (wasApplied || wasSkipped) removedIds.push(cluster.id);
+      }
+      for (const id of removedIds) {
+        const c = s.clusters.get(id);
+        if (c) {
+          for (const uid of c.repUids) {
+            s.cardCluster.delete(uid);
+            s.cardNotes.delete(uid);
+            s.excludedCards.delete(uid);
+          }
+        }
+        s.clusters.delete(id);
+        s.rejected.delete(id);
+      }
+      const remaining = s.clusters.size;
+      if (remaining === 0) {
+        clearPersistedClusterSession();
+      } else {
+        persistClusterSession();
+        showToast('Applied ' + result.applied + ' photos · ' + remaining + ' unlabeled cluster' + (remaining === 1 ? '' : 's') + ' kept for next time', 4500);
+      }
       closeClusterPanel();
     } else if (step === 'discard') {
       if (confirm('Discard the current clustering session? You\'ll lose all the AI groupings.')) {
