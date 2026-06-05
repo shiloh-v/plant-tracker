@@ -192,6 +192,7 @@
     <div id="count-label"></div>
     <div style="display:flex;gap:6px;align-items:center">
       <button id="log-all-overdue-btn" style="background:var(--good-bg);color:var(--good-fg);border:1px solid var(--good-fg);border-radius:14px;font-size:11px;font-weight:700;padding:4px 10px;font-family:inherit;cursor:pointer;display:none">💧 Log water for all overdue</button>
+      <button id="analyze-stale-btn" style="background:linear-gradient(135deg,#7c3aed,#6d28d9);color:white;border:none;border-radius:14px;font-size:11px;font-weight:700;padding:4px 10px;font-family:inherit;cursor:pointer;display:none">🔍 Analyze new photos</button>
       <button id="select-btn" style="background:var(--green);color:white;border:none;border-radius:14px;font-size:11px;font-weight:700;padding:4px 11px;font-family:inherit;cursor:pointer">☑ Select multiple</button>
       <select id="sort-select" style="background:var(--cream);border:1px solid var(--border);border-radius:14px;font-size:11px;font-weight:700;color:var(--muted);padding:4px 22px 4px 10px;font-family:inherit;cursor:pointer;-webkit-appearance:none;appearance:none;background-image:url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2210%22 height=%2210%22 viewBox=%220 0 10 10%22><path fill=%22%237a7060%22 d=%22M1 3l4 4 4-4z%22/></svg>');background-repeat:no-repeat;background-position:right 7px center">
         <option value="name">Name A-Z</option>
@@ -971,11 +972,38 @@ function renderLogAllOverdueBtn(visiblePlants) {
   }
 }
 
+// True if the plant has at least one photo AND its latest photo is more recent
+// than its last AI analysis (or it has photos but has never been analyzed).
+// This is the "ready for AI" signal — drives the auto-detect Analyze button.
+function hasStaleAnalysis(p) {
+  if (p.archived_at) return false;
+  const history = photoHistory[p.id] || [];
+  if (history.length === 0) return false;
+  const latestPhotoTs = history[0].ts;
+  const lastAI = lastAIAnalysisDate(p.id);
+  if (!lastAI) return true;  // photos exist but never analyzed
+  return latestPhotoTs > lastAI.getTime();
+}
+
+function renderAnalyzeStaleBtn(visiblePlants) {
+  const btn = document.getElementById('analyze-stale-btn');
+  if (!btn) return;
+  const stale = visiblePlants.filter(hasStaleAnalysis);
+  if (stale.length === 0) {
+    btn.style.display = 'none';
+  } else {
+    btn.style.display = 'inline-block';
+    btn.textContent = '🔍 Analyze ' + stale.length + ' with new photo' + (stale.length === 1 ? '' : 's');
+    btn.dataset.ids = stale.map(p => p.id).join(',');
+  }
+}
+
 function renderGrid() {
   renderLocPills();
   renderAttentionBadge();
   const plants = getFilteredPlants();
   renderLogAllOverdueBtn(plants);
+  renderAnalyzeStaleBtn(plants);
   document.getElementById('count-label').textContent = `${plants.length} plant${plants.length !== 1 ? 's' : ''}`;
   const grid = document.getElementById('grid');
   grid.innerHTML = plants.map(p => {
@@ -2608,6 +2636,22 @@ async function bulkAnalyze() {
 }
 
 document.getElementById('bulk-analyze-btn').addEventListener('click', bulkAnalyze);
+
+// One-tap analyze for plants with new photos since their last analysis.
+// Pre-populates the bulk selection from the button's data-ids and runs the
+// existing bulkAnalyze flow (which handles confirm, progress, cost guard).
+document.getElementById('analyze-stale-btn').addEventListener('click', () => {
+  const ids = (document.getElementById('analyze-stale-btn').dataset.ids || '').split(',').filter(Boolean);
+  if (ids.length === 0) return;
+  // Seed the selection then enter bulk mode briefly to trigger the same flow
+  selectedIds = new Set(ids);
+  selectMode = true;
+  bulkAnalyze().finally(() => {
+    // bulkAnalyze calls setSelectMode(false) on success, but we want to make
+    // sure the bar closes even if the user cancels the confirm dialog
+    if (selectMode) setSelectMode(false);
+  });
+});
 
 // ── Stats dashboard ────────────────────────────────────────────────────────
 function showStats() {
