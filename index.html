@@ -767,6 +767,9 @@ async function loadData() {
   loadingEl.style.display = 'none';
   renderGrid();
 
+  // Deep link: if URL hash is #plant=ID, open that plant's detail modal
+  openPlantFromHash();
+
   // Care events — load separately so a missing table (pre-migration-002) or
   // RLS hiccup doesn't break the main app.
   loadCareEvents();
@@ -2883,6 +2886,17 @@ document.getElementById('modal').addEventListener('touchstart', e => { touchStar
 document.getElementById('modal').addEventListener('touchend', e => {
   if (e.changedTouches[0].clientY - touchStartY > 80 && document.getElementById('modal').scrollTop === 0) closeModal();
 }, {passive:true});
+
+// Deep-link handler: parse "#plant=i01" from URL and open that plant.
+// Called once after initial load, and again on hashchange (e.g. user pastes
+// a different plant URL into an already-open tab).
+function openPlantFromHash() {
+  const m = location.hash.match(/plant=([a-z0-9_-]+)/i);
+  if (!m) return;
+  const id = m[1];
+  if (PLANTS.find(p => p.id === id)) openModal(id);
+}
+window.addEventListener('hashchange', openPlantFromHash);
 
 // ── Boot ────────────────────────────────────────────────────────────────────
 loadData();

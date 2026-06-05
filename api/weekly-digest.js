@@ -58,6 +58,33 @@ async function sbFetch(path) {
   return resp.json();
 }
 
+// Lookup the latest photo URL for one plant (storage list, sorted by name desc
+// since filenames are timestamps). Returns null on failure or no photos.
+async function latestPhotoUrl(plantId) {
+  try {
+    const resp = await fetch(SUPABASE_URL + '/storage/v1/object/list/plant-photos', {
+      method: 'POST',
+      headers: {
+        apikey: SUPABASE_KEY,
+        Authorization: 'Bearer ' + SUPABASE_KEY,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        limit: 1,
+        prefix: plantId + '/',
+        sortBy: { column: 'name', order: 'desc' },
+      }),
+    });
+    if (!resp.ok) return null;
+    const files = await resp.json();
+    if (!files.length || !files[0].name || !files[0].name.endsWith('.jpg')) return null;
+    return SUPABASE_URL + '/storage/v1/object/public/plant-photos/' + plantId + '/' + files[0].name;
+  } catch (e) {
+    console.warn('Photo lookup failed for', plantId, e.message);
+    return null;
+  }
+}
+
 function escapeHTML(s) {
   return String(s == null ? '' : s)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -138,23 +165,32 @@ function renderHTML(digest) {
     const p = item.plant;
     const hm = item.health ? HEALTH_META[item.health] : null;
     const label = p.name + (p.sub ? ' — ' + p.sub : '');
+    const deepLink = APP_URL + '/#plant=' + encodeURIComponent(p.id);
     const badge = hm
       ? '<span style="display:inline-block;background:' + hm.color + '22;color:' + hm.color + ';font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px;margin-right:6px">' + (hm.emoji ? hm.emoji + ' ' : '') + hm.label + '</span>'
       : '';
     const overdueChip = item.waterOverdueDays != null && item.waterOverdueDays > 0
-      ? '<span style="display:inline-block;background:#fed7aa;color:#9a3412;font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px;margin-right:6px">💧 ' + (item.waterOverdueDays === 999 ? 'never watered' : item.waterOverdueDays + 'd overdue') + '</span>'
+      ? '<span style="display:inline-block;background:#fed7aa;color:#9a3412;font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px;margin-right:6px">💧 ' + item.waterOverdueDays + 'd overdue</span>'
       : '';
     const actions = item.actionItems.length
       ? '<ul style="margin:6px 0 0;padding-left:18px;color:#15803d;font-size:13px;font-weight:600">' +
         item.actionItems.slice(0, 3).map(a => '<li style="margin-bottom:3px">' + escapeHTML(a) + '</li>').join('') +
         '</ul>'
       : '';
-    return '<tr><td style="padding:12px 14px;border-bottom:1px solid #e0d8cc;vertical-align:top">' +
-      '<div style="font-family:Georgia,serif;font-size:15px;font-weight:700;color:#1e1a12;margin-bottom:4px"><a href="' + APP_URL + '" style="color:#1e1a12;text-decoration:none">' + escapeHTML(label) + '</a></div>' +
-      '<div style="margin-bottom:4px">' + badge + overdueChip + '<span style="font-size:11px;color:#7a7060">' + escapeHTML(p.loc) + '</span></div>' +
-      '<div style="font-size:13px;color:#3f3a30;line-height:1.45">' + escapeHTML(item.currentStatus) + '</div>' +
-      actions +
-      '</td></tr>';
+    // Thumbnail column (when a photo exists). Email clients vary on rendering
+    // remote images; Supabase URLs are public so most clients will load them.
+    const thumb = item.photoUrl
+      ? '<td style="padding:12px 0 12px 14px;vertical-align:top;width:76px"><a href="' + deepLink + '" style="text-decoration:none"><img src="' + item.photoUrl + '" alt="" width="60" height="60" style="display:block;width:60px;height:60px;object-fit:cover;border-radius:8px;border:1px solid #e0d8cc"></a></td>'
+      : '';
+    return '<tr>' +
+      thumb +
+      '<td style="padding:12px 14px;border-bottom:1px solid #e0d8cc;vertical-align:top">' +
+        '<div style="font-family:Georgia,serif;font-size:15px;font-weight:700;color:#1e1a12;margin-bottom:4px"><a href="' + deepLink + '" style="color:#1e1a12;text-decoration:none">' + escapeHTML(label) + '</a></div>' +
+        '<div style="margin-bottom:4px">' + badge + overdueChip + '<span style="font-size:11px;color:#7a7060">' + escapeHTML(p.loc) + '</span></div>' +
+        '<div style="font-size:13px;color:#3f3a30;line-height:1.45">' + escapeHTML(item.currentStatus) + '</div>' +
+        actions +
+      '</td>' +
+    '</tr>';
   };
 
   const kindEmoji = KIND_EMOJI;
@@ -214,7 +250,7 @@ function renderText(digest) {
     digest.attention.forEach(item => {
       const tag = item.health ? '[' + item.health + ']' : '';
       const overdue = item.waterOverdueDays != null && item.waterOverdueDays > 0
-        ? ' [' + (item.waterOverdueDays === 999 ? 'never watered' : item.waterOverdueDays + 'd overdue water') + ']'
+        ? ' [' + item.waterOverdueDays + 'd overdue water]'
         : '';
       lines.push(`• ${item.plant.name}${item.plant.sub ? ' — ' + item.plant.sub : ''}${tag ? ' ' + tag : ''}${overdue}`);
       if (item.currentStatus) lines.push(`    ${item.currentStatus}`);
@@ -271,6 +307,13 @@ export default async function handler(req, res) {
     ]);
 
     const digest = buildDigest({ plants, overrides, careEvents });
+
+    // Fetch latest photo URL for each attention plant (parallel, ~200ms total)
+    if (digest.attention.length > 0) {
+      const urls = await Promise.all(digest.attention.map(item => latestPhotoUrl(item.plant.id)));
+      digest.attention.forEach((item, i) => { item.photoUrl = urls[i]; });
+    }
+
     const html = renderHTML(digest);
     const text = renderText(digest);
 
