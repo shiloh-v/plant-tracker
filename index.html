@@ -947,19 +947,26 @@ function lastEvent(plantId, kind) {
   return list.find(e => e.kind === kind);
 }
 
-// Returns { days, dueIn } where days = since last event (or null), dueIn = days
-// until next due (negative if overdue, null if no cadence set).
+// Returns { days, dueIn } where days = calendar-day diff since last event
+// (or null), dueIn = days until next due (negative if overdue, null if no
+// cadence set).
+//
+// Calendar-day diff (not 24-hour elapsed) so labels match how users think
+// about watering — watering Monday night + viewing Tuesday morning should
+// say "Yesterday," not "Today." Both the care-section label and the
+// history row now use the same math, so they always agree.
 function careStatus(plant, kind, cadence) {
   const last = lastEvent(plant.id, kind);
   // No prior log → dueIn is null (not "overdue"), even if a cadence is set.
   // Otherwise newly-added cadences spam the Attention tab until the user logs
   // the first watering/feeding.
   if (!last) return { days: null, dueIn: null, lastDate: null };
-  const lastTs = new Date(last.occurred_at).getTime();
-  const now = Date.now();
-  const days = Math.floor((now - lastTs) / 86400000);
+  const lastDate = new Date(last.occurred_at);
+  const lastDay = new Date(lastDate); lastDay.setHours(0, 0, 0, 0);
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const days = Math.floor((today - lastDay) / 86400000);
   const dueIn = cadence ? cadence - days : null;
-  return { days, dueIn, lastDate: new Date(last.occurred_at) };
+  return { days, dueIn, lastDate };
 }
 
 async function logCareEvent(plantId, kind, notes) {
