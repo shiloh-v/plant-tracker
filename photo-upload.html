@@ -462,6 +462,7 @@ async function withKey(label, fn, opts = {}) {
 // ── Plant list — fetched from Supabase (the inline PLANTS array referenced in
 //    PHOTO_UPLOADER.md was moved to the plants table in migration 001) ──────
 let PLANTS = [];
+let POTS = [];  // active (non-retired) pots, so cards can target a pot instead of a plant
 async function loadPlants() {
   const { data, error } = await sb.from('plants').select('id, name, sub, sci, loc, type, archived_at, deceased_at')
     .order('name');
@@ -469,6 +470,40 @@ async function loadPlants() {
   // Hide both archived AND deceased plants from photo-to-plant matching —
   // no point assigning a new photo to a plant that's gone.
   PLANTS = (data || []).filter(p => !p.archived_at && !p.deceased_at);
+}
+async function loadPots() {
+  try {
+    const { data, error } = await sb.from('pots').select('id, label, retired_at').order('label');
+    if (error) { POTS = []; return; }
+    POTS = (data || []).filter(p => !p.retired_at);
+  } catch (e) { POTS = []; }
+}
+
+// Unified target lookup — cards can target either a plant or a pot.
+// Plant ids look like i01/o02; pot ids are UUIDs — no collision possible.
+function findTarget(card) {
+  if (!card?.plantId) return null;
+  if (card.targetKind === 'pot') {
+    const p = POTS.find(x => x.id === card.plantId);
+    return p ? { kind: 'pot', id: p.id, label: p.label, meta: 'pot', raw: p } : null;
+  }
+  const p = PLANTS.find(x => x.id === card.plantId);
+  return p ? { kind: 'plant', id: p.id, label: plantLabel(p), meta: (p.loc || '') + ' · ' + p.id + (p.type ? ' · ' + p.type : ''), raw: p } : null;
+}
+
+// Searches both plants and pots, returns unified result list with kind.
+function searchTargets(q) {
+  q = (q || '').trim().toLowerCase();
+  const plants = PLANTS.filter(p => !q || plantMatches(p, q)).map(p => ({
+    kind: 'plant', id: p.id, label: plantLabel(p),
+    meta: (p.loc || '') + ' · ' + p.id + (p.type ? ' · ' + p.type : ''), raw: p,
+  }));
+  const pots = POTS.filter(pot =>
+    !q || pot.label.toLowerCase().includes(q) || pot.id.toLowerCase().includes(q)
+  ).map(pot => ({
+    kind: 'pot', id: pot.id, label: pot.label, meta: 'pot', raw: pot,
+  }));
+  return [...plants, ...pots].slice(0, 50);
 }
 
 // ── Image compression (same params as index.html) ───────────────────────────
@@ -586,6 +621,7 @@ async function persistCard(card) {
         // Don't persist 'uploading' — if we crash mid-upload, restore as ready
         status: card.status === 'uploading' ? 'ready' : card.status,
         plantId: card.plantId || '',
+        targetKind: card.targetKind || '',
         errorMsg: card.errorMsg || '',
         ts: card.ts || null,
         tsSource: card.tsSource === 'pending' ? null : (card.tsSource || null),
@@ -707,9 +743,28 @@ async function addFiles(fileList) {
 async function checkDuplicate(card) {
   if (card.status !== 'ready' || card.force) return;
   const plantId = card.plantId;
+  const isPot = card.targetKind === 'pot';
 
   if (card.tsReady) await card.tsReady;
   if (card.plantId !== plantId || card.status !== 'ready') return;
+
+  // Pots: skip filename-collision check (path is fixed, last-wins overwrite).
+  // Flag any earlier card in this batch already targeting the same pot — only
+  // one of them will survive after upload, so make it explicit.
+  if (isPot) {
+    const earlier = cards.find(c =>
+      c.uid !== card.uid && c.targetKind === 'pot' && c.plantId === plantId &&
+      (c.status === 'ready' || c.status === 'uploading' || c.status === 'done')
+    );
+    if (earlier) {
+      card.status = 'duplicate';
+      card.errorMsg = 'Another card already targets this pot (' + earlier.file.name + ') — only the last upload would survive';
+      markDirty(card);
+      renderCard(card);
+      updateSummary();
+    }
+    return;
+  }
 
   // 1. Filename collision against the plant's existing folder
   if (card.ts != null) {
@@ -733,6 +788,7 @@ async function checkDuplicate(card) {
   if (card.plantId !== plantId || card.status !== 'ready') return;
   const earlier = cards.find(c =>
     c.uid !== card.uid &&
+    c.targetKind !== 'pot' &&
     c.plantId === plantId &&
     c.sha && c.sha === card.sha &&
     (c.status === 'ready' || c.status === 'uploading' || c.status === 'done')
@@ -776,9 +832,11 @@ function buildCombobox(card, opts) {
   opts = opts || {};
   const wrap = document.createElement('div');
   wrap.className = 'combobox' + (card.plantId ? ' has-pick' : '');
-  const picked = card.plantId ? PLANTS.find(p => p.id === card.plantId) : null;
+  // Picked target — unified across plants + pots
+  const picked = findTarget(card);
+  const pickedLabel = picked ? (picked.kind === 'pot' ? '🪴 ' : '') + picked.label : '';
   wrap.innerHTML =
-    '<input type="text" placeholder="Search plant…" value="' + (picked ? esc(plantLabel(picked)) : '') + '">' +
+    '<input type="text" placeholder="Search plant or pot…" value="' + esc(pickedLabel) + '">' +
     (card.plantId ? '<button type="button" class="clear" title="Clear">×</button>' : '') +
     '<div class="list"></div>';
   const input = wrap.querySelector('input');
@@ -789,25 +847,27 @@ function buildCombobox(card, opts) {
   function refresh(showAll) {
     const q = input.value.trim();
     // If the input still shows the picked label exactly, treat as no query
-    const queryStr = (picked && q === plantLabel(picked) && !showAll) ? '' : q;
-    filtered = PLANTS.filter(p => plantMatches(p, queryStr)).slice(0, 50);
+    const queryStr = (picked && q === pickedLabel && !showAll) ? '' : q;
+    filtered = searchTargets(queryStr);
     if (filtered.length === 0) {
       list.innerHTML = '<div class="empty">No matches</div>';
     } else {
-      list.innerHTML = filtered.map((p, i) =>
-        '<div class="opt' + (i === activeIdx ? ' active' : '') + '" data-id="' + esc(p.id) + '">' +
-          '<div class="opt-name">' + esc(plantLabel(p)) + '</div>' +
-          '<div class="opt-meta">' + esc(p.loc || '') + ' · ' + esc(p.id) + (p.type ? ' · ' + esc(p.type) : '') + '</div>' +
-        '</div>'
-      ).join('');
+      list.innerHTML = filtered.map((t, i) => {
+        const icon = t.kind === 'pot' ? '🪴' : '🌱';
+        return '<div class="opt' + (i === activeIdx ? ' active' : '') + '" data-id="' + esc(t.id) + '" data-kind="' + t.kind + '">' +
+          '<div class="opt-name">' + icon + ' ' + esc(t.label) + '</div>' +
+          '<div class="opt-meta">' + esc(t.meta) + '</div>' +
+        '</div>';
+      }).join('');
     }
   }
 
   function open() { wrap.classList.add('open'); refresh(false); }
   function close() { wrap.classList.remove('open'); }
 
-  function pick(p) {
-    card.plantId = p.id;
+  function pick(target) {
+    card.plantId = target.id;
+    card.targetKind = target.kind;
     if (card.status === 'unassigned' || card.status === 'failed' || card.status === 'duplicate') {
       card.status = 'ready';
       card.errorMsg = '';
@@ -818,7 +878,7 @@ function buildCombobox(card, opts) {
     renderCard(card);
     updateSummary();
     checkDuplicate(card);
-    if (opts.onPick) opts.onPick(p);
+    if (opts.onPick) opts.onPick(target);
   }
 
   input.addEventListener('focus', () => {
@@ -845,8 +905,8 @@ function buildCombobox(card, opts) {
     const opt = e.target.closest('.opt');
     if (!opt) return;
     e.preventDefault();
-    const p = PLANTS.find(x => x.id === opt.dataset.id);
-    if (p) pick(p);
+    const target = filtered.find(t => t.id === opt.dataset.id && t.kind === opt.dataset.kind);
+    if (target) pick(target);
   });
   document.addEventListener('mousedown', e => {
     if (!wrap.contains(e.target)) close();
@@ -855,6 +915,7 @@ function buildCombobox(card, opts) {
   const clearBtn = wrap.querySelector('.clear');
   if (clearBtn) clearBtn.addEventListener('click', () => {
     card.plantId = '';
+    card.targetKind = '';
     if (card.status === 'ready' || card.status === 'duplicate') {
       card.status = 'unassigned';
       card.errorMsg = '';
@@ -895,8 +956,9 @@ function openCardPhotoModal(uid) {
   document.getElementById('cp-filename').textContent = card.file.name;
 
   const idx = cards.findIndex(c => c.uid === uid);
-  document.getElementById('cp-nav-info').textContent = 'Photo ' + (idx + 1) + ' of ' + cards.length + ' · ' + (card.plantId
-    ? '✓ ' + (PLANTS.find(p => p.id === card.plantId)?.name || card.plantId)
+  const target = findTarget(card);
+  document.getElementById('cp-nav-info').textContent = 'Photo ' + (idx + 1) + ' of ' + cards.length + ' · ' + (target
+    ? '✓ ' + (target.kind === 'pot' ? '🪴 ' : '') + target.label
     : (card.status === 'unassigned' ? 'unassigned' : card.status));
   document.getElementById('cp-prev').disabled = idx <= 0;
   document.getElementById('cp-next').disabled = idx >= cards.length - 1;
@@ -1156,6 +1218,7 @@ function pickFilename(plantId, card, usedInBatch) {
 async function uploadCard(card, usedInBatch) {
   if (card.status !== 'ready') return;
   const plantId = card.plantId;
+  const isPot = card.targetKind === 'pot';
   card.status = 'uploading';
   card.errorMsg = '';
   markDirty(card);
@@ -1164,42 +1227,65 @@ async function uploadCard(card, usedInBatch) {
 
   try {
     const blob = await compress(card.file);
-    const picked = pickFilename(plantId, card, usedInBatch);
-    const path = plantId + '/' + picked.name;
 
-    const upRes = await withTimeout(
-      withKey('upload photo', () =>
-        sb.storage.from(BUCKET).upload(path, blob, { contentType: 'image/jpeg', upsert: false })
-      ),
-      60000, 'Storage upload'
-    );
-    if (upRes.error) throw new Error(upRes.error.message || 'Upload failed');
-
-    // Serialize the override upsert per plant so we don't lose photo_ts on
-    // races between two cards uploading to the same plant. Each step also
-    // has its own timeout so a stalled mobile network can't wedge the queue.
-    await withPlantLock(plantId, async () => {
-      const fetched = await withTimeout(
-        sb.from('plant_overrides').select('*').eq('id', plantId).limit(1),
-        20000, 'Fetch override'
+    if (isPot) {
+      // Pot photos: always at pots/<id>.jpg with upsert (one photo per pot).
+      // No filename collision check — last assignment wins.
+      const path = 'pots/' + plantId + '.jpg';
+      const upRes = await withTimeout(
+        withKey('upload pot photo', () =>
+          sb.storage.from(BUCKET).upload(path, blob, { contentType: 'image/jpeg', upsert: true })
+        ),
+        60000, 'Storage upload'
       );
-      const existing = (fetched.data && fetched.data[0]) || { id: plantId };
-      const prevTs = existing.photo_ts || 0;
-      // Only advance photo_ts if this upload is newer than what's already set
-      const nextTs = Math.max(prevTs, picked.ts);
-      const row = { ...existing, photo_ts: nextTs, updated_at: new Date().toISOString() };
-      const res = await withTimeout(
-        withKey('record photo timestamp', () =>
-          sb.from('plant_overrides').upsert(row).select(), { expectRows: true }),
-        20000, 'Record timestamp'
-      );
-      if (res.error) throw new Error(res.error.message || 'Failed to record photo');
-    });
+      if (upRes.error) throw new Error(upRes.error.message || 'Upload failed');
 
-    // Keep the dedup cache in sync so the next card targeting this plant
-    // sees the file we just uploaded
-    const cache = existingFiles.get(plantId);
-    if (cache) cache.add(picked.name);
+      // Update pots.photo_ts so the index.html UI bypasses cache + shows the new image
+      const photo_ts = card.ts || Date.now();
+      const upd = await withTimeout(
+        withKey('record pot photo', () =>
+          sb.from('pots').update({ photo_ts }).eq('id', plantId).select().single()),
+        20000, 'Update pot'
+      );
+      if (upd.error) throw new Error(upd.error.message || 'Failed to update pot');
+    } else {
+      const picked = pickFilename(plantId, card, usedInBatch);
+      const path = plantId + '/' + picked.name;
+
+      const upRes = await withTimeout(
+        withKey('upload photo', () =>
+          sb.storage.from(BUCKET).upload(path, blob, { contentType: 'image/jpeg', upsert: false })
+        ),
+        60000, 'Storage upload'
+      );
+      if (upRes.error) throw new Error(upRes.error.message || 'Upload failed');
+
+      // Serialize the override upsert per plant so we don't lose photo_ts on
+      // races between two cards uploading to the same plant. Each step also
+      // has its own timeout so a stalled mobile network can't wedge the queue.
+      await withPlantLock(plantId, async () => {
+        const fetched = await withTimeout(
+          sb.from('plant_overrides').select('*').eq('id', plantId).limit(1),
+          20000, 'Fetch override'
+        );
+        const existing = (fetched.data && fetched.data[0]) || { id: plantId };
+        const prevTs = existing.photo_ts || 0;
+        // Only advance photo_ts if this upload is newer than what's already set
+        const nextTs = Math.max(prevTs, picked.ts);
+        const row = { ...existing, photo_ts: nextTs, updated_at: new Date().toISOString() };
+        const res = await withTimeout(
+          withKey('record photo timestamp', () =>
+            sb.from('plant_overrides').upsert(row).select(), { expectRows: true }),
+          20000, 'Record timestamp'
+        );
+        if (res.error) throw new Error(res.error.message || 'Failed to record photo');
+      });
+
+      // Keep the dedup cache in sync so the next card targeting this plant
+      // sees the file we just uploaded
+      const cache = existingFiles.get(plantId);
+      if (cache) cache.add(picked.name);
+    }
 
     card.status = 'done';
   } catch (err) {
@@ -1430,6 +1516,7 @@ async function restoreFromIDB() {
       file,
       previewUrl,
       plantId: r.plantId || '',
+      targetKind: r.targetKind || '',  // '' (legacy plant) | 'plant' | 'pot'
       status: r.status === 'uploading' ? 'ready' : (r.status || 'unassigned'),
       errorMsg: r.errorMsg || '',
       ts: r.ts || null,
@@ -2639,6 +2726,7 @@ document.getElementById('cluster-overlay').addEventListener('click', e => {
 })();
 
 loadPlants();
+loadPots();
 restoreFromIDB();
 </script>
 </body>
