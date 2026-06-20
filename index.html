@@ -365,6 +365,13 @@
     </div>
 
     <div class="field-wrap">
+      <div class="field-label">Container <span style="font-weight:400;color:var(--muted);font-size:11px">— if this plant lives in a multi-plant home (planter, plant stand, bed)</span></div>
+      <select id="f-container" style="width:100%;padding:9px 11px;border-radius:10px;border:1.5px solid var(--border);font-size:13px;font-family:inherit;outline:none;background:white">
+        <option value="">— Not in a container —</option>
+      </select>
+    </div>
+
+    <div class="field-wrap">
       <div class="field-label">Location *</div>
       <input type="text" id="f-loc" list="f-loc-options" style="width:100%;padding:9px 11px;border-radius:10px;border:1.5px solid var(--border);font-size:13px;font-family:inherit;outline:none;background:white" placeholder="e.g. Family Room">
       <datalist id="f-loc-options"></datalist>
@@ -1453,15 +1460,42 @@ function renderToday() {
   const active = PLANTS.filter(isActive);
   const grid = document.getElementById('grid');
 
-  // Section buckets
+  // Container due — one row per container that's overdue on its own
+  // cadence. Children of these containers are hidden from the per-plant
+  // rows below so a 12-herb planter shows as ONE row, not 12.
+  const containerStatus = (c, kind) => {
+    const cad = kind === 'water' ? c.water_every_days : c.feed_every_days;
+    if (!cad) return { dueIn: null, lastDate: null };
+    const ev = lastContainerEvent(c.id, kind);
+    if (!ev) return { dueIn: null, lastDate: null };  // never logged → not surfaced
+    const evDay = new Date(ev.occurred_at); evDay.setHours(0,0,0,0);
+    const today = new Date(); today.setHours(0,0,0,0);
+    const days = Math.floor((today - evDay) / 86400000);
+    return { dueIn: cad - days, lastDate: evDay };
+  };
+  const waterDueContainers = CONTAINERS
+    .map(c => ({ c, kids: PLANTS.filter(p => p.container_id === c.id && isActive(p)), status: containerStatus(c, 'water') }))
+    .filter(x => x.status.dueIn !== null && x.status.dueIn <= 0 && x.kids.length > 0)
+    .sort((a, b) => a.status.dueIn - b.status.dueIn);
+  const feedDueContainers = CONTAINERS
+    .map(c => ({ c, kids: PLANTS.filter(p => p.container_id === c.id && isActive(p)), status: containerStatus(c, 'feed') }))
+    .filter(x => x.status.dueIn !== null && x.status.dueIn <= 0 && x.kids.length > 0)
+    .sort((a, b) => a.status.dueIn - b.status.dueIn);
+  const containerIdsCoveredWater = new Set(waterDueContainers.map(x => x.c.id));
+  const containerIdsCoveredFeed  = new Set(feedDueContainers.map(x => x.c.id));
+
+  // Section buckets — exclude plants whose container is already shown
+  // as a due-row above (the container row covers them with one tap).
   const waterDue = active
     .filter(p => p.water_every_days)
+    .filter(p => !(p.container_id && containerIdsCoveredWater.has(p.container_id)))
     .map(p => ({ p, status: careStatus(p, 'water', p.water_every_days) }))
     .filter(x => x.status.dueIn !== null && x.status.dueIn <= 0)
     .sort((a, b) => a.status.dueIn - b.status.dueIn);
 
   const feedDue = active
     .filter(p => p.feed_every_days)
+    .filter(p => !(p.container_id && containerIdsCoveredFeed.has(p.container_id)))
     .map(p => ({ p, status: careStatus(p, 'feed', p.feed_every_days) }))
     .filter(x => x.status.dueIn !== null && x.status.dueIn <= 0)
     .sort((a, b) => a.status.dueIn - b.status.dueIn);
@@ -1549,14 +1583,36 @@ function renderToday() {
       ${tile('crit',    '⚠',  'Critical',   struggling.length)}
     </div>`;
 
-  // 💧 Water today
-  if (waterDue.length) {
+  // Container row — used for multi-plant homes. One tap waters/feeds the
+  // whole thing. Tapping the body opens the container modal.
+  const containerRow = (c, kids, status, kind) => {
+    const url = c.photo_ts
+      ? `${SUPABASE_URL}/storage/v1/object/public/${BUCKET}/containers/${c.id}.jpg?t=${c.photo_ts}`
+      : '';
+    const action = `<button class="today-action today-container-log-btn" data-container="${c.id}" data-kind="${kind}">Log</button>`;
+    return `
+      <div class="today-row today-container-row" data-container="${c.id}" style="border-left:3px solid var(--green)">
+        ${url
+          ? `<img src="${url}" alt="" class="today-row-img">`
+          : '<div class="today-row-img placeholder">🪴</div>'}
+        <div class="today-row-body">
+          <div class="today-row-name">📦 ${escapeHtml(c.label)}</div>
+          <div class="today-row-sub">${escapeHtml(c.loc)} · ${kids.length} plant${kids.length === 1 ? '' : 's'}</div>
+          <div class="today-row-meta${status.dueIn < 0 ? ' overdue' : ''}">${status.dueIn === 0 ? 'Due today' : (status.dueIn < 0 ? Math.abs(status.dueIn) + 'd overdue' : 'Due in ' + status.dueIn + 'd')}</div>
+        </div>
+        ${action}
+      </div>`;
+  };
+
+  // 💧 Water today — containers first, then individual plants
+  if (waterDueContainers.length || waterDue.length) {
     const bulk = waterDue.length > 1
-      ? `<button id="today-water-all" class="today-bulk-btn">Log all ${waterDue.length}</button>` : '';
+      ? `<button id="today-water-all" class="today-bulk-btn">Log all ${waterDue.length} plants</button>` : '';
     html += section(
       '💧 Water today',
       null,
       bulk,
+      waterDueContainers.map(({ c, kids, status }) => containerRow(c, kids, status, 'water')).join('') +
       waterDue.map(({ p, status }) =>
         row(p, logBtn(p.id, 'water', 'Log'), dueMeta(status.dueIn))
       ).join('')
@@ -1564,13 +1620,14 @@ function renderToday() {
   }
 
   // 🍴 Feed today
-  if (feedDue.length) {
+  if (feedDueContainers.length || feedDue.length) {
     const bulk = feedDue.length > 1
-      ? `<button id="today-feed-all" class="today-bulk-btn">Log all ${feedDue.length}</button>` : '';
+      ? `<button id="today-feed-all" class="today-bulk-btn">Log all ${feedDue.length} plants</button>` : '';
     html += section(
       '🍴 Feed today',
       null,
       bulk,
+      feedDueContainers.map(({ c, kids, status }) => containerRow(c, kids, status, 'feed')).join('') +
       feedDue.map(({ p, status }) =>
         row(p, logBtn(p.id, 'feed', 'Log'), dueMeta(status.dueIn))
       ).join('')
@@ -1655,12 +1712,16 @@ function renderToday() {
   grid.innerHTML = html;
 
   // ── Wire interactions ────────────────────────────────────────────────────
-  // Row tap → open plant detail
+  // Row tap → open plant detail (or container modal for container rows)
   grid.querySelectorAll('.today-row').forEach(row => {
     row.addEventListener('click', e => {
       // Don't intercept button clicks
       if (e.target.closest('button')) return;
-      openModal(row.dataset.plant);
+      if (row.dataset.container) {
+        openContainerModal(row.dataset.container);
+      } else if (row.dataset.plant) {
+        openModal(row.dataset.plant);
+      }
     });
   });
 
@@ -1673,6 +1734,22 @@ function renderToday() {
       const ok = await logCareEvent(btn.dataset.plant, btn.dataset.kind);
       if (ok) renderToday();  // re-render to drop the row
       else { btn.disabled = false; btn.textContent = btn.dataset.kind === 'water' ? '💧 Log' : '🍴 Log'; }
+    });
+  });
+
+  // Container log buttons — water/feed the whole container
+  grid.querySelectorAll('.today-container-log-btn').forEach(btn => {
+    btn.addEventListener('click', async e => {
+      e.stopPropagation();
+      btn.disabled = true;
+      btn.innerHTML = '<span class="spin"></span>';
+      try {
+        await logContainerCare(btn.dataset.container, btn.dataset.kind);
+        renderToday();  // re-render to drop the container row
+      } catch (err) {
+        btn.disabled = false;
+        btn.textContent = 'Log';
+      }
     });
   });
 
@@ -2785,6 +2862,15 @@ function openPlantForm(mode, plant) {
   document.getElementById('f-feed-every').value  = plant?.feed_every_days  ?? '';
   document.getElementById('f-seasonal').checked  = !!plant?.seasonal_care;
   document.getElementById('f-care-notes').value  = (plant && overrides[plant.id]?.care_notes) || '';
+
+  // Container picker — list active containers; picking one means the plant
+  // lives in it (water/feed roll up to the container's care log).
+  const containerSel = document.getElementById('f-container');
+  containerSel.innerHTML =
+    '<option value="">— Not in a container —</option>' +
+    CONTAINERS.map(c =>
+      `<option value="${c.id}" ${plant?.container_id === c.id ? 'selected' : ''}>${escapeHtml(c.label)} (${escapeHtml(c.loc)})</option>`
+    ).join('');
   // Acquired date — populate from plant.created_at on edit, today on add
   const acquired = plant?.created_at ? new Date(plant.created_at) : new Date();
   const acqStr = acquired.getFullYear() + '-'
@@ -2831,6 +2917,7 @@ async function savePlant() {
   const feed_every_days  = feed_raw  ? parseInt(feed_raw,  10) : null;
   const seasonal_care = document.getElementById('f-seasonal').checked;
   const care_notes = document.getElementById('f-care-notes').value.trim() || null;
+  const container_id = document.getElementById('f-container').value || null;
   const status = document.getElementById('f-status').value.trim() || null;
   // Acquired date — convert YYYY-MM-DD from <input type="date"> to an ISO
   // timestamp at noon local time so the date doesn't accidentally flip
@@ -2852,6 +2939,7 @@ async function savePlant() {
 
   const row = { id, name, sub, sci, type, loc, pot, toxic, water_every_days, feed_every_days, archived_at: null };
   if (hasSeasonalCol) row.seasonal_care = seasonal_care;
+  if (hasContainersTable) row.container_id = container_id;
   if (acquired_at) row.created_at = acquired_at;
   let res;
   if (formMode === 'add') {
