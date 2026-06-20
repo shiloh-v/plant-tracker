@@ -3791,9 +3791,24 @@ function renderPotsModal() {
     `<strong style="color:var(--good-fg)">${availablePotRows.length} available</strong> · ` +
     `${inUsePotRows.length} in use · ${retired.length} retired`;
 
+  // Photo URL helper — public URL with cache-bust if pot has a photo
+  const potPhotoURL = pot => pot.photo_ts
+    ? `${SUPABASE_URL}/storage/v1/object/public/${BUCKET}/pots/${pot.id}.jpg?t=${pot.photo_ts}`
+    : null;
+
+  // Thumb/placeholder cell — tap to upload. Stop click propagation so the
+  // row's rename handler doesn't fire when you tap the thumbnail.
+  const photoCell = pot => {
+    const url = potPhotoURL(pot);
+    return url
+      ? `<img class="pot-photo" data-pot-id="${pot.id}" src="${url}" alt="" style="width:54px;height:54px;border-radius:8px;object-fit:cover;flex-shrink:0;cursor:pointer">`
+      : `<button class="pot-photo-add" data-pot-id="${pot.id}" style="width:54px;height:54px;border-radius:8px;background:var(--soft);border:1.5px dashed var(--border);color:var(--muted);font-size:18px;font-weight:700;cursor:pointer;flex-shrink:0;display:flex;align-items:center;justify-content:center;padding:0;font-family:inherit">📷</button>`;
+  };
+
   // Available pots: green accent on the left, prominent. Retire button enabled.
   const availableRow = pot => `
     <div class="pot-row" data-pot-id="${pot.id}" style="display:flex;align-items:flex-start;gap:10px;padding:12px;border-bottom:1px solid var(--border);border-left:3px solid var(--good-fg);background:rgba(45,90,39,.04);cursor:pointer">
+      ${photoCell(pot)}
       <div style="flex:1;min-width:0">
         <div style="font-size:14px;font-weight:700;line-height:1.25">${escapeHtml(pot.label)}</div>
         <div style="font-size:11px;color:var(--muted);margin-top:3px">Acquired ${fmt(pot.acquired_at)}</div>
@@ -3807,6 +3822,7 @@ function renderPotsModal() {
     const holders = activePlantsForPot(pot.label);
     return `
       <div class="pot-row" data-pot-id="${pot.id}" style="display:flex;align-items:flex-start;gap:10px;padding:12px;border-bottom:1px solid var(--border);cursor:pointer">
+        ${photoCell(pot)}
         <div style="flex:1;min-width:0">
           <div style="font-size:14px;font-weight:700;line-height:1.25;color:var(--text)">${escapeHtml(pot.label)}</div>
           <div style="font-size:12px;color:var(--text);margin-top:4px">🌱 ${holders.map(p => escapeHtml(p.name)).join(', ')}</div>
@@ -3873,12 +3889,73 @@ function renderPotsModal() {
   document.querySelectorAll('.pot-restore-btn').forEach(btn => {
     btn.addEventListener('click', () => restorePot(btn.dataset.potId));
   });
+  // Photo placeholder / thumbnail — tap to upload (or replace) photo.
+  // Stop propagation so the row's rename handler doesn't also fire.
+  document.querySelectorAll('.pot-photo-add, .pot-photo').forEach(el => {
+    el.addEventListener('click', e => {
+      e.stopPropagation();
+      triggerPotPhotoUpload(el.dataset.potId);
+    });
+  });
   document.querySelectorAll('.pot-row').forEach(row => {
     row.addEventListener('click', e => {
-      if (e.target.closest('button')) return;  // don't intercept buttons
+      if (e.target.closest('button, img')) return;  // don't intercept buttons or thumbs
       editPotInline(row.dataset.potId);
     });
   });
+}
+
+// ── Pot photo upload ────────────────────────────────────────────────────────
+// Uses a single hidden file input that gets re-created per call so the
+// `change` handler captures the right pot id. Photos go to plant-photos
+// bucket under pots/<pot-id>.jpg with upsert so re-uploading replaces.
+function triggerPotPhotoUpload(potId) {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/*';
+  input.style.display = 'none';
+  input.addEventListener('change', async () => {
+    const file = input.files?.[0];
+    document.body.removeChild(input);
+    if (!file) return;
+    await uploadPotPhoto(potId, file);
+  });
+  document.body.appendChild(input);
+  input.click();
+}
+
+async function uploadPotPhoto(potId, file) {
+  if (!plantKey) {
+    const ok = await promptPassphrase('Enter your passphrase to upload a pot photo.');
+    if (!ok) return;
+  }
+  const pot = POTS.find(p => p.id === potId);
+  if (!pot) return;
+
+  // Optimistic UI — disable the photo cell while uploading
+  const cell = document.querySelector(`[data-pot-id="${CSS.escape(potId)}"].pot-photo, [data-pot-id="${CSS.escape(potId)}"].pot-photo-add`);
+  if (cell) { cell.style.opacity = '.4'; cell.style.pointerEvents = 'none'; }
+
+  try {
+    const blob = await compress(file);
+    const path = `pots/${potId}.jpg`;
+    const upRes = await withKey('upload pot photo', () =>
+      sb.storage.from(BUCKET).upload(path, blob, { contentType: 'image/jpeg', upsert: true })
+    );
+    if (upRes.error) throw new Error(upRes.error.message || 'Upload failed');
+
+    const photo_ts = Date.now();
+    const updateRes = await withKey('record pot photo', () =>
+      sb.from('pots').update({ photo_ts }).eq('id', potId).select().single()
+    );
+    if (updateRes.error) throw new Error(updateRes.error.message || 'Failed to record photo');
+
+    Object.assign(pot, updateRes.data);
+    renderPotsModal();
+  } catch (err) {
+    alert('Pot photo upload failed: ' + err.message);
+    if (cell) { cell.style.opacity = '1'; cell.style.pointerEvents = ''; }
+  }
 }
 
 async function addNewPot() {

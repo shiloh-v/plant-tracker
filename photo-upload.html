@@ -463,10 +463,12 @@ async function withKey(label, fn, opts = {}) {
 //    PHOTO_UPLOADER.md was moved to the plants table in migration 001) ──────
 let PLANTS = [];
 async function loadPlants() {
-  const { data, error } = await sb.from('plants').select('id, name, sub, sci, loc, type, archived_at')
+  const { data, error } = await sb.from('plants').select('id, name, sub, sci, loc, type, archived_at, deceased_at')
     .order('name');
   if (error) { showToast('Failed to load plants: ' + error.message); return; }
-  PLANTS = (data || []).filter(p => !p.archived_at);
+  // Hide both archived AND deceased plants from photo-to-plant matching —
+  // no point assigning a new photo to a plant that's gone.
+  PLANTS = (data || []).filter(p => !p.archived_at && !p.deceased_at);
 }
 
 // ── Image compression (same params as index.html) ───────────────────────────

@@ -24,6 +24,7 @@ Apply each in order via Supabase SQL Editor:
 5. [migrations/005_care_notes.sql](migrations/005_care_notes.sql) — sticky care_notes field
 6. [migrations/006_deceased.sql](migrations/006_deceased.sql) — deceased_at timestamp for plants that didn't survive
 7. [migrations/007_pots.sql](migrations/007_pots.sql) — pots inventory table with acquired_at + retired_at (auto-backfills from existing plant.pot strings)
+8. [migrations/008_pot_photos.sql](migrations/008_pot_photos.sql) — photo_ts column on pots so each pot can have one photo (stored at `plant-photos/pots/<id>.jpg`)
 
 After 001, run [scripts/seed.html](scripts/seed.html) once to import the initial plants.
 
