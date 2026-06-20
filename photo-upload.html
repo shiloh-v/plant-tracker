@@ -95,6 +95,9 @@
   .combobox .list .opt { padding: 8px 11px; font-size: 12.5px; cursor: pointer; border-bottom: 1px solid var(--border); }
   .combobox .list .opt:last-child { border-bottom: none; }
   .combobox .list .opt:hover, .combobox .list .opt.active { background: var(--soft); }
+  .combobox .list .opt.pot-empty { background: rgba(45,90,39,.06); border-left: 3px solid var(--good-fg); }
+  .combobox .list .opt.pot-empty .opt-meta { color: var(--good-fg); font-weight: 600; }
+  .combobox .list .opt.pot-empty:hover, .combobox .list .opt.pot-empty.active { background: rgba(45,90,39,.14); }
   .combobox .opt-name { font-weight: 700; }
   .combobox .opt-meta { font-size: 10.5px; color: var(--muted); margin-top: 1px; }
   .combobox .empty { padding: 10px; font-size: 12px; color: var(--muted); text-align: center; }
@@ -464,12 +467,22 @@ async function withKey(label, fn, opts = {}) {
 let PLANTS = [];
 let POTS = [];  // active (non-retired) pots, so cards can target a pot instead of a plant
 async function loadPlants() {
-  const { data, error } = await sb.from('plants').select('id, name, sub, sci, loc, type, archived_at, deceased_at')
+  // Includes `pot` so the pot picker can show "🌱 with <plant>" or "available"
+  const { data, error } = await sb.from('plants').select('id, name, sub, sci, loc, type, pot, archived_at, deceased_at')
     .order('name');
   if (error) { showToast('Failed to load plants: ' + error.message); return; }
   // Hide both archived AND deceased plants from photo-to-plant matching —
   // no point assigning a new photo to a plant that's gone.
   PLANTS = (data || []).filter(p => !p.archived_at && !p.deceased_at);
+}
+
+// Active plants currently holding a given pot label (case-insensitive).
+// Used for "🌱 with X" meta on pot dropdown rows so the user can identify
+// a pot by its current contents.
+function plantsInPot(label) {
+  const k = (label || '').trim().toLowerCase();
+  if (!k) return [];
+  return PLANTS.filter(p => (p.pot || '').trim().toLowerCase() === k);
 }
 async function loadPots() {
   try {
@@ -492,18 +505,44 @@ function findTarget(card) {
 }
 
 // Searches both plants and pots, returns unified result list with kind.
+// For pots, the meta line shows whether it's empty ("Available") or in use
+// ("with <plant name>") so the user can pick the right one visually.
+// Empty pots also match queries like "empty" / "available" so they're easy
+// to surface when the user is uploading photos of bare containers.
 function searchTargets(q) {
   q = (q || '').trim().toLowerCase();
   const plants = PLANTS.filter(p => !q || plantMatches(p, q)).map(p => ({
     kind: 'plant', id: p.id, label: plantLabel(p),
     meta: (p.loc || '') + ' · ' + p.id + (p.type ? ' · ' + p.type : ''), raw: p,
   }));
-  const pots = POTS.filter(pot =>
-    !q || pot.label.toLowerCase().includes(q) || pot.id.toLowerCase().includes(q)
-  ).map(pot => ({
-    kind: 'pot', id: pot.id, label: pot.label, meta: 'pot', raw: pot,
-  }));
-  return [...plants, ...pots].slice(0, 50);
+  const potResults = POTS.map(pot => {
+    const holders = plantsInPot(pot.label);
+    const isEmpty = holders.length === 0;
+    const status = isEmpty
+      ? '✓ Available (empty)'
+      : '🌱 with ' + holders.map(h => h.name + (h.sub ? ' · ' + h.sub : '')).join(', ');
+    return {
+      kind: 'pot', id: pot.id, label: pot.label,
+      meta: status + ' · pot',
+      isEmpty, holders, raw: pot,
+    };
+  });
+  // Match against label, id, current plant names, or "empty"/"available" keywords
+  const pots = potResults.filter(t => {
+    if (!q) return true;
+    if (t.label.toLowerCase().includes(q)) return true;
+    if (t.id.toLowerCase().includes(q)) return true;
+    if (t.holders.some(h => (h.name || '').toLowerCase().includes(q) || (h.sub || '').toLowerCase().includes(q))) return true;
+    if (t.isEmpty && ('empty available'.includes(q) || q.includes('empty') || q.includes('available'))) return true;
+    return false;
+  });
+  // Sort pots empty-first so the easiest case (matching a photo to a known
+  // empty pot) is at the top of the list when there's no query
+  pots.sort((a, b) => {
+    if (a.isEmpty !== b.isEmpty) return a.isEmpty ? -1 : 1;
+    return a.label.localeCompare(b.label);
+  });
+  return [...plants, ...pots].slice(0, 80);
 }
 
 // ── Image compression (same params as index.html) ───────────────────────────
@@ -854,7 +893,8 @@ function buildCombobox(card, opts) {
     } else {
       list.innerHTML = filtered.map((t, i) => {
         const icon = t.kind === 'pot' ? '🪴' : '🌱';
-        return '<div class="opt' + (i === activeIdx ? ' active' : '') + '" data-id="' + esc(t.id) + '" data-kind="' + t.kind + '">' +
+        const emptyCls = (t.kind === 'pot' && t.isEmpty) ? ' pot-empty' : '';
+        return '<div class="opt' + (i === activeIdx ? ' active' : '') + emptyCls + '" data-id="' + esc(t.id) + '" data-kind="' + t.kind + '">' +
           '<div class="opt-name">' + icon + ' ' + esc(t.label) + '</div>' +
           '<div class="opt-meta">' + esc(t.meta) + '</div>' +
         '</div>';
