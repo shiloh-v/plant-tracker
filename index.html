@@ -96,7 +96,7 @@
 
   /* ── Overlay + Modal ── */
   #overlay { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 100; display: flex; align-items: flex-end; justify-content: center; }
-  #overlay.hidden, #form-overlay.hidden, #lightbox.hidden, #bulk-bar.hidden, #analysis-overlay.hidden, #move-photo-overlay.hidden, #stats-overlay.hidden, #ask-overlay.hidden, #verify-overlay.hidden, #pots-overlay.hidden { display: none !important; }
+  #overlay.hidden, #form-overlay.hidden, #lightbox.hidden, #bulk-bar.hidden, #analysis-overlay.hidden, #move-photo-overlay.hidden, #stats-overlay.hidden, #ask-overlay.hidden, #verify-overlay.hidden, #pots-overlay.hidden, #container-overlay.hidden { display: none !important; }
   .card.selected { outline: 3px solid var(--green); outline-offset: -1px; }
   .card .select-check { position: absolute; top: 6px; left: 6px; width: 24px; height: 24px; border-radius: 50%; background: rgba(0,0,0,.55); color: white; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700; z-index: 2; pointer-events: none; }
   .card.selected .select-check { background: var(--green); }
@@ -467,6 +467,20 @@
   </div>
 </div>
 
+<!-- ── Container detail modal: care log + photo + drill-down to plants ── -->
+<div id="container-overlay" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:130;display:flex;align-items:center;justify-content:center;padding:14px">
+  <div id="container-modal" style="background:var(--cream);border-radius:18px;padding:0 18px 18px;max-width:640px;width:100%;max-height:92vh;overflow-y:auto;font-family:inherit;box-shadow:0 12px 40px rgba(0,0,0,.4)">
+    <div style="position:sticky;top:0;background:var(--cream);padding-top:18px;padding-bottom:10px;display:flex;justify-content:space-between;align-items:flex-start;gap:10px;border-bottom:1px solid var(--border);margin-bottom:14px;z-index:1">
+      <div style="flex:1;min-width:0">
+        <div id="container-title" style="font-family:'Fraunces',serif;font-size:18px;font-weight:700;line-height:1.2"></div>
+        <div id="container-subtitle" style="font-size:11px;color:var(--muted);margin-top:3px"></div>
+      </div>
+      <button id="container-close" style="background:var(--soft);border:none;border-radius:50%;width:30px;height:30px;font-size:18px;cursor:pointer;color:var(--muted);font-family:inherit;line-height:1;padding:0;flex-shrink:0">×</button>
+    </div>
+    <div id="container-body"></div>
+  </div>
+</div>
+
 <!-- ── Manage Pots modal: inventory of every container, with add/retire ── -->
 <div id="pots-overlay" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:135;display:flex;align-items:center;justify-content:center;padding:14px">
   <div id="pots-modal" style="background:var(--cream);border-radius:18px;padding:0 18px 18px;max-width:560px;width:100%;max-height:92vh;overflow-y:auto;font-family:inherit;box-shadow:0 12px 40px rgba(0,0,0,.4)">
@@ -569,10 +583,13 @@ let overrides = {};      // id -> {status, notes, photo_ts, updated_at}
 let photoURLs = {};      // id -> latest public URL string (with cache-bust)
 let photoHistory = {};   // id -> [{url, ts, label}] newest-first
 let careEvents = {};     // plant_id -> events array (sorted newest-first)
+let containerEvents = {}; // container_id -> events array (sorted newest-first)
 let hasSeasonalCol = false;  // set true after loadData if plants.seasonal_care exists
 let hasDeceasedCol = false;  // set true after loadData if plants.deceased_at exists (migration 006)
 let hasPotsTable  = false;  // set true after loadData if pots table exists (migration 007)
+let hasContainersTable = false; // set true after loadData if containers table exists (migration 009)
 let POTS = [];               // pots inventory rows from the pots table
+let CONTAINERS = [];         // active containers (planters/stands/beds holding multiple plants)
 let selectedId = null;
 let tab = 'today';   // dashboard view — daily check-in is the primary landing
 let locFilter = 'all';
@@ -836,6 +853,22 @@ async function loadData() {
     POTS = [];
     hasPotsTable = false;
   }
+
+  // Containers table (migration 009) — multi-plant homes like the elevated
+  // herb planter, plant stand, garden beds. Best-effort like pots.
+  try {
+    const cRes = await sb.from('containers').select('*').order('label');
+    if (!cRes.error) {
+      CONTAINERS = (cRes.data || []).filter(c => !c.retired_at);
+      hasContainersTable = true;
+    } else {
+      CONTAINERS = [];
+      hasContainersTable = false;
+    }
+  } catch (e) {
+    CONTAINERS = [];
+    hasContainersTable = false;
+  }
   overrides = {};
   photoURLs = {};
   photoHistory = {};
@@ -931,11 +964,14 @@ async function loadCareEvents() {
     // Log and move on — app still works without care log.
     console.warn('care_events unavailable:', error.message);
     careEvents = {};
+    containerEvents = {};
     return;
   }
   careEvents = {};
+  containerEvents = {};
   (data || []).forEach(e => {
-    (careEvents[e.plant_id] = careEvents[e.plant_id] || []).push(e);
+    if (e.plant_id) (careEvents[e.plant_id] = careEvents[e.plant_id] || []).push(e);
+    if (e.container_id) (containerEvents[e.container_id] = containerEvents[e.container_id] || []).push(e);
   });
   // Re-render anything currently visible that depends on care state
   if (selectedId) renderCareSection(selectedId);
@@ -947,6 +983,23 @@ function lastEvent(plantId, kind) {
   return list.find(e => e.kind === kind);
 }
 
+// Last event for a CONTAINER (water-the-whole-planter, etc).
+function lastContainerEvent(containerId, kind) {
+  const list = containerEvents[containerId] || [];
+  return list.find(e => e.kind === kind);
+}
+
+// For plants that live in a container, "most recent care" is the newer of
+// the plant's own event and the container's group event. Returns the
+// canonical event (whichever is most recent) or null.
+function lastEffectiveEvent(plant, kind) {
+  const plantE = lastEvent(plant.id, kind);
+  const contE  = plant.container_id ? lastContainerEvent(plant.container_id, kind) : null;
+  if (!plantE) return contE;
+  if (!contE)  return plantE;
+  return new Date(plantE.occurred_at) > new Date(contE.occurred_at) ? plantE : contE;
+}
+
 // Returns { days, dueIn } where days = calendar-day diff since last event
 // (or null), dueIn = days until next due (negative if overdue, null if no
 // cadence set).
@@ -956,7 +1009,10 @@ function lastEvent(plantId, kind) {
 // say "Yesterday," not "Today." Both the care-section label and the
 // history row now use the same math, so they always agree.
 function careStatus(plant, kind, cadence) {
-  const last = lastEvent(plant.id, kind);
+  // Plants in a container inherit watering from the container's group
+  // events — if the herb planter was watered today, every herb counts as
+  // watered today even if no per-plant event was logged.
+  const last = lastEffectiveEvent(plant, kind);
   // No prior log → dueIn is null (not "overdue"), even if a cadence is set.
   // Otherwise newly-added cadences spam the Attention tab until the user logs
   // the first watering/feeding.
@@ -1101,12 +1157,47 @@ function getFilteredPlants() {
     // Archived are always hidden. Deceased are hidden EXCEPT on the Lost tab.
     if (p.archived_at) return false;
     if (p.deceased_at && tab !== 'lost') return false;
+    // Plants that live inside a container don't show at the top-level grid
+    // — they're accessed by drilling into their container. Search still
+    // surfaces them so a name lookup works.
+    if (p.container_id && !q && tab !== 'lost') return false;
     if (!tabMatches(p)) return false;
     if (locFilter !== 'all' && p.loc !== locFilter) return false;
     if (q) return p.name.toLowerCase().includes(q) || (p.sci||'').toLowerCase().includes(q) || (p.sub||'').toLowerCase().includes(q) || p.loc.toLowerCase().includes(q);
     return true;
   });
   return sortPlants(list);
+}
+
+// Containers that match the current tab/loc/search — rendered alongside
+// standalone plants on the grid. Each container's "type" is derived from
+// the type of its first child (every herb in the herb planter is outdoor,
+// every plant on the plant stand is indoor — they don't mix in practice).
+function getFilteredContainers() {
+  if (tab === 'lost' || tab === 'today') return [];
+  const q = document.getElementById('search').value.trim().toLowerCase();
+  return CONTAINERS.filter(c => {
+    const kids = PLANTS.filter(p => p.container_id === c.id && isActive(p));
+    if (kids.length === 0 && !q) return false;  // empty containers stay hidden until used
+    const ctype = kids[0]?.type || 'indoor';
+    if (tab === 'attention') {
+      // Container shows on attention if any child plant needs attention OR
+      // the container itself is overdue on water/feed
+      const childNeeds = kids.some(needsAttention);
+      const waterOver = c.water_every_days && (() => {
+        const ev = lastContainerEvent(c.id, 'water');
+        if (!ev) return false;
+        const d = Math.floor((Date.now() - new Date(ev.occurred_at).getTime()) / 86400000);
+        return d >= c.water_every_days;
+      })();
+      if (!childNeeds && !waterOver) return false;
+    } else if (tab === 'indoor' || tab === 'outdoor') {
+      if (ctype !== tab) return false;
+    }
+    if (locFilter !== 'all' && c.loc !== locFilter) return false;
+    if (q) return c.label.toLowerCase().includes(q) || (c.loc || '').toLowerCase().includes(q);
+    return true;
+  });
 }
 
 function sortPlants(list) {
@@ -1280,11 +1371,49 @@ function renderGrid() {
   }
 
   const plants = getFilteredPlants();
+  const containers = getFilteredContainers();
   renderLogAllOverdueBtn(plants);
   renderAnalyzeStaleBtn(plants);
-  document.getElementById('count-label').textContent = `${plants.length} plant${plants.length !== 1 ? 's' : ''}`;
+  const countTxt = `${plants.length} plant${plants.length !== 1 ? 's' : ''}` +
+    (containers.length ? ` · ${containers.length} container${containers.length === 1 ? '' : 's'}` : '');
+  document.getElementById('count-label').textContent = countTxt;
   const grid = document.getElementById('grid');
-  grid.innerHTML = plants.map(p => {
+
+  // Container cards first — they're "homes" for plants and conceptually
+  // bigger than individual plants, so they lead.
+  const containerCardsHTML = containers.map(c => {
+    const url = c.photo_ts
+      ? `${SUPABASE_URL}/storage/v1/object/public/${BUCKET}/containers/${c.id}.jpg?t=${c.photo_ts}`
+      : null;
+    const kids = PLANTS.filter(p => p.container_id === c.id && isActive(p));
+    const childCount = kids.length;
+    const lastWater = lastContainerEvent(c.id, 'water');
+    const wDays = c.water_every_days;
+    let dueLabel = '';
+    if (wDays && lastWater) {
+      const days = Math.floor((Date.now() - new Date(lastWater.occurred_at).getTime()) / 86400000);
+      const dueIn = wDays - days;
+      dueLabel = dueIn <= 0
+        ? `<div class="card-status" style="color:var(--danger-fg);font-weight:700">💧 ${dueIn === 0 ? 'Due today' : Math.abs(dueIn) + 'd overdue'}</div>`
+        : (dueIn <= 2 ? `<div class="card-status" style="color:var(--warn-fg)">💧 Due in ${dueIn}d</div>` : '');
+    } else if (wDays) {
+      dueLabel = `<div class="card-status" style="color:var(--danger-fg);font-weight:700">💧 Never watered</div>`;
+    }
+    return `
+      <div class="card" data-container-id="${c.id}" style="border:1.5px solid var(--green);position:relative">
+        <div class="card-photo">
+          ${url ? `<img src="${url}" alt="${escapeHtml(c.label)}" loading="lazy">` : '<span class="placeholder">🪴</span>'}
+          <span class="toxic-badge" style="background:var(--green);color:white">📦 ${childCount} plant${childCount === 1 ? '' : 's'}</span>
+        </div>
+        <div class="card-body">
+          <div class="card-name">${escapeHtml(c.label)}</div>
+          <div class="card-loc">${escapeHtml(c.loc)}</div>
+          ${dueLabel}
+        </div>
+      </div>`;
+  }).join('');
+
+  grid.innerHTML = containerCardsHTML + plants.map(p => {
     const url = photoURLs[p.id];
     const st = (getStatus(p) || '').replace(/^[☠⚠⭐🌱]\s*/,'').replace(/^Healthy\s*[—-]\s*/i,'').trim();
     const h = plantHealth(p);
@@ -3376,6 +3505,11 @@ document.getElementById('loc-bar').addEventListener('click', e => {
 document.getElementById('grid').addEventListener('click', e => {
   const card = e.target.closest('.card');
   if (!card) return;
+  // Container cards open the container modal instead of the plant modal
+  if (card.dataset.containerId) {
+    openContainerModal(card.dataset.containerId);
+    return;
+  }
   if (selectMode) {
     const id = card.dataset.id;
     if (selectedIds.has(id)) selectedIds.delete(id); else selectedIds.add(id);
@@ -4058,6 +4192,239 @@ async function ensurePotExists(label) {
 document.getElementById('pots-close').addEventListener('click', closePotsModal);
 document.getElementById('pots-overlay').addEventListener('click', e => {
   if (e.target.id === 'pots-overlay') closePotsModal();
+});
+
+// ── Container detail modal ──────────────────────────────────────────────────
+let openContainerId = null;
+
+function openContainerModal(containerId) {
+  openContainerId = containerId;
+  renderContainerModal();
+  document.getElementById('container-overlay').classList.remove('hidden');
+  document.body.style.overflow = 'hidden';
+}
+
+function closeContainerModal() {
+  document.getElementById('container-overlay').classList.add('hidden');
+  document.body.style.overflow = '';
+  openContainerId = null;
+}
+
+function renderContainerModal() {
+  const c = CONTAINERS.find(x => x.id === openContainerId);
+  if (!c) { closeContainerModal(); return; }
+
+  const kids = PLANTS.filter(p => p.container_id === c.id && isActive(p))
+    .sort((a, b) => a.name.localeCompare(b.name) || (a.sub || '').localeCompare(b.sub || ''));
+  const photoURL = c.photo_ts
+    ? `${SUPABASE_URL}/storage/v1/object/public/${BUCKET}/containers/${c.id}.jpg?t=${c.photo_ts}`
+    : null;
+
+  // Cadence rollup — water/feed status for the whole container
+  const cadenceRow = (kind, cadence, emoji, label) => {
+    if (!cadence) return '';
+    const ev = lastContainerEvent(c.id, kind);
+    let line = 'No log yet', tone = 'background:var(--danger-bg);color:var(--danger-fg)';
+    let due = 'Due now';
+    if (ev) {
+      const evDate = new Date(ev.occurred_at);
+      const evDay = new Date(evDate); evDay.setHours(0, 0, 0, 0);
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      const days = Math.floor((today - evDay) / 86400000);
+      const dueIn = cadence - days;
+      line = days === 0 ? 'Today' : days === 1 ? 'Yesterday' : days + ' days ago';
+      if (dueIn < 0) { due = Math.abs(dueIn) + 'd overdue'; tone = 'background:var(--danger-bg);color:var(--danger-fg)'; }
+      else if (dueIn === 0) { due = 'Due today'; tone = 'background:var(--warn-bg);color:var(--warn-fg)'; }
+      else if (dueIn <= 2) { due = 'Due in ' + dueIn + 'd'; tone = 'background:var(--warn-bg);color:var(--warn-fg)'; }
+      else { due = 'Due in ' + dueIn + 'd'; tone = 'background:var(--good-bg);color:var(--good-fg)'; }
+    }
+    return `
+      <div style="flex:1;min-width:0">
+        <div class="field-label" style="margin-bottom:6px">${emoji} ${label}</div>
+        <div style="font-size:13px;font-weight:700">${line}</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px">Every ${cadence}d</div>
+        <span style="display:inline-block;margin-top:6px;padding:3px 8px;border-radius:6px;font-size:11px;font-weight:700;${tone}">${due}</span>
+        <button class="container-log-btn" data-kind="${kind}" style="display:block;margin-top:8px;width:100%;padding:9px;background:var(--green);color:white;border:none;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit">${emoji} Log ${label.toLowerCase()} all ${kids.length}</button>
+      </div>`;
+  };
+
+  const careRow = (c.water_every_days || c.feed_every_days)
+    ? `<div style="display:flex;gap:12px;padding:12px;background:var(--soft);border-radius:10px;margin-bottom:14px">
+        ${cadenceRow('water', c.water_every_days, '💧', 'Water')}
+        ${cadenceRow('feed', c.feed_every_days, '🍴', 'Feed')}
+      </div>`
+    : '';
+
+  // Recent container care events (last 10)
+  const events = (containerEvents[c.id] || []).slice(0, 10);
+  const KIND_E = { water: '💧', feed: '🍴', repot: '🌱', prune: '✂️', inspect: '👀', other: '•' };
+  const eventList = events.length
+    ? `<div style="margin-bottom:14px">
+        <div class="field-label" style="margin-bottom:6px">Recent container care</div>
+        ${events.map(ev => {
+          const d = new Date(ev.occurred_at);
+          const evDay = new Date(d); evDay.setHours(0, 0, 0, 0);
+          const today = new Date(); today.setHours(0, 0, 0, 0);
+          const days = Math.floor((today - evDay) / 86400000);
+          const rel = days === 0 ? 'Today' : days === 1 ? 'Yesterday' : days + 'd ago';
+          return `<div style="display:flex;justify-content:space-between;padding:7px 10px;background:var(--soft);border-radius:7px;margin-bottom:4px;font-size:12px">
+            <span><span style="margin-right:6px">${KIND_E[ev.kind] || '•'}</span>${ev.kind}${ev.notes ? ' · ' + escapeHtml(ev.notes.slice(0, 60)) : ''}</span>
+            <span style="color:var(--muted);white-space:nowrap">${rel}</span>
+          </div>`;
+        }).join('')}
+      </div>`
+    : '';
+
+  // Photo
+  const photoHTML = photoURL
+    ? `<img src="${photoURL}" alt="" style="width:100%;border-radius:12px;margin-bottom:14px;cursor:pointer" id="container-photo-img">`
+    : `<button id="container-photo-add" style="width:100%;padding:38px;background:var(--soft);border:1.5px dashed var(--border);border-radius:12px;color:var(--muted);font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;margin-bottom:14px">📷 Add a photo of this container</button>`;
+
+  // Child plant sub-grid — tap to drill into individual plant detail
+  const childGrid = kids.length
+    ? `<div class="field-label" style="margin-bottom:8px">📦 ${kids.length} plant${kids.length === 1 ? '' : 's'} in this container</div>
+       <div style="display:grid;grid-template-columns:repeat(auto-fill, minmax(140px, 1fr));gap:10px;margin-bottom:14px">
+        ${kids.map(p => {
+          const purl = photoURLs[p.id];
+          const h = plantHealth(p);
+          const hm = h ? healthMeta(h) : null;
+          return `<div class="container-child" data-plant-id="${p.id}" style="background:var(--cream);border:1px solid var(--border);border-radius:10px;overflow:hidden;cursor:pointer">
+            <div style="position:relative;aspect-ratio:1;background:var(--soft)">
+              ${purl ? `<img src="${purl}" alt="" style="width:100%;height:100%;object-fit:cover">` : '<div style="display:flex;align-items:center;justify-content:center;height:100%;font-size:24px">🌱</div>'}
+              ${p.toxic ? '<span style="position:absolute;top:4px;left:4px;background:var(--danger-bg);color:var(--danger-fg);font-size:9px;font-weight:700;padding:2px 6px;border-radius:6px">☠</span>' : ''}
+            </div>
+            <div style="padding:8px">
+              <div style="font-size:12px;font-weight:700;line-height:1.2">${escapeHtml(p.name)}</div>
+              ${p.sub ? `<div style="font-size:11px;color:var(--muted);margin-top:2px">${escapeHtml(p.sub)}</div>` : ''}
+              ${p.pot ? `<div style="font-size:10px;color:var(--muted);margin-top:3px">${escapeHtml(p.pot)}</div>` : ''}
+              ${hm ? `<span class="health-badge" style="color:${hm.color};background:${hm.bg};margin-top:5px">${hm.emoji ? hm.emoji + ' ' : ''}${hm.label}</span>` : ''}
+            </div>
+          </div>`;
+        }).join('')}
+      </div>`
+    : `<div style="padding:24px;text-align:center;color:var(--muted);font-style:italic">No plants in this container yet.</div>`;
+
+  document.getElementById('container-title').textContent = c.label;
+  document.getElementById('container-subtitle').textContent =
+    `${c.kind} · ${c.loc} · ${kids.length} plant${kids.length === 1 ? '' : 's'}`;
+
+  document.getElementById('container-body').innerHTML = `
+    ${photoHTML}
+    ${careRow}
+    ${c.care_notes ? `<div style="margin-bottom:14px"><div class="field-label" style="margin-bottom:6px">Care notes</div><div class="notes-display has-notes">${escapeHtml(c.care_notes)}</div></div>` : ''}
+    ${eventList}
+    ${childGrid}
+    <button id="container-edit-btn" class="btn-edit" style="margin-top:6px">✎ Edit container</button>
+  `;
+
+  // Wire interactions
+  document.querySelectorAll('.container-log-btn').forEach(btn => {
+    btn.addEventListener('click', () => logContainerCare(c.id, btn.dataset.kind));
+  });
+  document.querySelectorAll('.container-child').forEach(el => {
+    el.addEventListener('click', () => {
+      closeContainerModal();
+      openModal(el.dataset.plantId);
+    });
+  });
+  const photoBtn = document.getElementById('container-photo-add');
+  if (photoBtn) photoBtn.addEventListener('click', () => triggerContainerPhotoUpload(c.id));
+  const photoImg = document.getElementById('container-photo-img');
+  if (photoImg) photoImg.addEventListener('click', () => triggerContainerPhotoUpload(c.id));
+  const editBtn = document.getElementById('container-edit-btn');
+  if (editBtn) editBtn.addEventListener('click', () => editContainerInline(c.id));
+}
+
+async function logContainerCare(containerId, kind) {
+  if (!plantKey) {
+    const ok = await promptPassphrase('Enter your passphrase to log container care.');
+    if (!ok) return;
+  }
+  const c = CONTAINERS.find(x => x.id === containerId);
+  if (!c) return;
+
+  const row = {
+    container_id: containerId,
+    plant_id: null,
+    kind,
+    occurred_at: new Date().toISOString(),
+  };
+  const { data, error } = await withKey('log container ' + kind, () =>
+    sb.from('care_events').insert(row).select().single()
+  );
+  if (error) { alert('Failed to log: ' + error.message); return; }
+  (containerEvents[containerId] = containerEvents[containerId] || []).unshift(data);
+  renderContainerModal();
+  renderGrid();
+  showToast(`✓ Logged ${kind} on ${c.label}`);
+}
+
+function editContainerInline(containerId) {
+  const c = CONTAINERS.find(x => x.id === containerId);
+  if (!c) return;
+  const next = prompt(`Edit "${c.label}":\nNew label (or leave unchanged):`, c.label);
+  if (next === null) return;
+  const newLabel = next.trim();
+  const careNotes = prompt('Care notes (durable instructions for the whole container):', c.care_notes || '');
+  if (careNotes === null) return;
+  updateContainer(containerId, { label: newLabel || c.label, care_notes: careNotes.trim() || null });
+}
+
+async function updateContainer(containerId, patch) {
+  const { data, error } = await withKey('update container', () =>
+    sb.from('containers').update(patch).eq('id', containerId).select().single()
+  );
+  if (error) { alert('Update failed: ' + error.message); return; }
+  const c = CONTAINERS.find(x => x.id === containerId);
+  if (c) Object.assign(c, data);
+  renderContainerModal();
+  renderGrid();
+}
+
+function triggerContainerPhotoUpload(containerId) {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'image/*';
+  input.style.display = 'none';
+  input.addEventListener('change', async () => {
+    const file = input.files?.[0];
+    document.body.removeChild(input);
+    if (!file) return;
+    await uploadContainerPhoto(containerId, file);
+  });
+  document.body.appendChild(input);
+  input.click();
+}
+
+async function uploadContainerPhoto(containerId, file) {
+  if (!plantKey) {
+    const ok = await promptPassphrase('Enter your passphrase to upload a photo.');
+    if (!ok) return;
+  }
+  try {
+    const blob = await compress(file);
+    const path = `containers/${containerId}.jpg`;
+    const upRes = await withKey('upload container photo', () =>
+      sb.storage.from(BUCKET).upload(path, blob, { contentType: 'image/jpeg', upsert: true })
+    );
+    if (upRes.error) throw new Error(upRes.error.message || 'Upload failed');
+    const photo_ts = Date.now();
+    const upd = await withKey('record container photo', () =>
+      sb.from('containers').update({ photo_ts }).eq('id', containerId).select().single()
+    );
+    if (upd.error) throw new Error(upd.error.message || 'Failed to record photo');
+    const c = CONTAINERS.find(x => x.id === containerId);
+    if (c) Object.assign(c, upd.data);
+    renderContainerModal();
+    renderGrid();
+  } catch (err) {
+    alert('Container photo upload failed: ' + err.message);
+  }
+}
+
+document.getElementById('container-close').addEventListener('click', closeContainerModal);
+document.getElementById('container-overlay').addEventListener('click', e => {
+  if (e.target.id === 'container-overlay') closeContainerModal();
 });
 
 // ── Verify-all sweep (Phase 5) ──────────────────────────────────────────────

@@ -25,6 +25,7 @@ Apply each in order via Supabase SQL Editor:
 6. [migrations/006_deceased.sql](migrations/006_deceased.sql) — deceased_at timestamp for plants that didn't survive
 7. [migrations/007_pots.sql](migrations/007_pots.sql) — pots inventory table with acquired_at + retired_at (auto-backfills from existing plant.pot strings)
 8. [migrations/008_pot_photos.sql](migrations/008_pot_photos.sql) — photo_ts column on pots so each pot can have one photo (stored at `plant-photos/pots/<id>.jpg`)
+9. [migrations/009_containers.sql](migrations/009_containers.sql) — `containers` table for multi-plant homes (elevated planters, plant stands, garden beds). Adds `plants.container_id` + `care_events.container_id`. Auto-backfills Herb Planter, Strawberry Planter, and Family Room Plant Stand.
 
 After 001, run [scripts/seed.html](scripts/seed.html) once to import the initial plants.
 
